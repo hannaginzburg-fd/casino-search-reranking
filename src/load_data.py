@@ -10,6 +10,7 @@ from data.constants import (
     full_df_start_date,
     full_df_table,
     inferences_table,
+    schema,
     train_df_table,
     training_lookback_window,
 )
@@ -49,12 +50,12 @@ def save_full_df(full_df: pd.DataFrame) -> None:
         .withColumn("inserted_ts", F.current_timestamp())
         .write.format("delta")
         .mode("overwrite")
-        .saveAsTable(full_df_table)
+        .saveAsTable(f"{schema}.{full_df_table}")
     )
 
 
 def load_full_df_table() -> pd.DataFrame:
-    return get_spark().table(full_df_table).toPandas()
+    return get_spark().table(f"{schema}.{full_df_table}").toPandas()
 
 
 def save_train_df(train_df: pd.DataFrame) -> None:
@@ -64,7 +65,7 @@ def save_train_df(train_df: pd.DataFrame) -> None:
         .withColumn("inserted_ts", F.current_timestamp())
         .write.format("delta")
         .mode("overwrite")
-        .saveAsTable(train_df_table)
+        .saveAsTable(f"{schema}.{train_df_table}")
     )
 
 
@@ -75,5 +76,5 @@ def save_inferences(scored_df: pd.DataFrame) -> None:
         .withColumn("inserted_ts", F.current_timestamp())
         .write.format("delta")
         .mode("overwrite")
-        .saveAsTable(inferences_table)
+        .saveAsTable(f"{schema}.{inferences_table}")
     )

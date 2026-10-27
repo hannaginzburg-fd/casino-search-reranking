@@ -11,7 +11,7 @@ src/data/config.py           # Column rules
 src/load_data.py        # Spark SQL → full_df (pandas)
 src/features.py         # Train vs inference feature matrices
 src/train.py            # Fit + save model
-src/predict.py          # Score (game_position nullified)
+src/inference.py        # Score holdout week (game_position nullified)
 notebooks/train.py      # Databricks notebook entrypoint
 ```
 
@@ -20,8 +20,8 @@ notebooks/train.py      # Databricks notebook entrypoint
 | Stage | Behavior |
 |-------|----------|
 | **`full_df`** | All columns from `base_features` where `final_similarity_score IS NOT NULL` |
-| **Training** | Drops `fanduel_user_id`, `session_id`, `game_id`, `event_date`, `search_keyword`, `base_similarity_score`; target is **`label`** |
-| **Inference** | Same feature list as training; **`game_position`** set to null before predict |
+| **Training** | Last **`holdout_period`** days (see `constants.py`) held out; drops id/date/keyword columns; target is **`label`** |
+| **Inference** | Same feature list as training on the holdout slice; **`game_position`** set to null before scoring |
 
 `game_position` is used in training (known on impressions); it is cleared at inference because rank is not known yet.
 
@@ -34,6 +34,8 @@ pip install -r requirements.txt
 cd src
 python train.py
 ```
+
+`train.py` fits on all rows except the last `holdout_period` days by `event_date`, then runs inference on that holdout week.
 
 Re-train from cached Delta table (skip feature SQL):
 
@@ -50,10 +52,10 @@ Outputs: `artifacts/search_click_lgbm.txt`, `artifacts/feature_columns.json`, De
 
 ```bash
 cd src
-python predict.py
+python inference.py
 ```
 
-Scores land in `sandbox.group_data_science.cas_search_reranking_lgbm_inferences` (with `inserted_ts`).
+Re-score holdout only (after training): same split from `full_df` Delta table. Scores land in `sandbox.group_data_science.cas_search_reranking_lgbm_inferences` (with `inserted_ts`).
 
 ## Databricks
 
