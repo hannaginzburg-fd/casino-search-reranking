@@ -11,11 +11,9 @@ from sklearn.model_selection import train_test_split
 from data.config import DEFAULT_FEATURE_LIST_PATH, DEFAULT_MODEL_PATH, LABEL_COLUMN
 from data.constants import holdout_period
 from features import save_feature_columns, training_matrix
-from inference import infer_holdout
-from load_data import load_full_df, load_full_df_table, save_full_df, save_train_df
+from load_data import load_full_df_table, save_train_df
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-DEFAULT_SQL = Path(__file__).resolve().parent / "data" / "training_data.sql"
 
 
 def train(
@@ -71,32 +69,20 @@ def train(
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Train search click LightGBM from Databricks feature SQL")
-    parser.add_argument("--sql", type=Path, default=DEFAULT_SQL, help="Path to training_data.sql")
-    parser.add_argument(
-        "--from-table",
-        action="store_true",
-        help="Skip SQL; load full_df from the Delta table in data.constants",
-    )
+    parser = argparse.ArgumentParser(description="Train LightGBM from full_df Delta (holdout week excluded)")
     parser.add_argument("--model-path", type=Path, default=REPO_ROOT / DEFAULT_MODEL_PATH)
     parser.add_argument("--feature-list-path", type=Path, default=REPO_ROOT / DEFAULT_FEATURE_LIST_PATH)
     args = parser.parse_args()
 
-    if args.from_table:
-        full_df = load_full_df_table()
-    else:
-        full_df = load_full_df(args.sql)
-        save_full_df(full_df)
-
+    full_df = load_full_df_table()
     event_date = pd.to_datetime(full_df["event_date"])
     holdout_start = event_date.max() - pd.Timedelta(days=holdout_period - 1)
-    holdout_df = full_df[event_date >= holdout_start]
     train_df = full_df[event_date < holdout_start]
+    holdout_rows = (event_date >= holdout_start).sum()
 
-    print(f"full_df shape: {full_df.shape} (train: {len(train_df):,}, holdout: {len(holdout_df):,})")
+    print(f"full_df: {len(full_df):,} rows | training: {len(train_df):,} | holdout (excluded): {holdout_rows:,}")
     metrics = train(train_df, model_path=args.model_path, feature_list_path=args.feature_list_path)
     print(f"Training complete: {metrics}")
-    infer_holdout(holdout_df, model_path=args.model_path, feature_list_path=args.feature_list_path)
 
 
 if __name__ == "__main__":

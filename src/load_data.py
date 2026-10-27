@@ -78,3 +78,16 @@ def save_inferences(scored_df: pd.DataFrame) -> None:
         .mode("overwrite")
         .saveAsTable(f"{schema}.{inferences_table}")
     )
+
+
+if __name__ == "__main__":
+    import argparse
+
+    default_sql = Path(__file__).resolve().parent / "data" / "training_data.sql"
+    parser = argparse.ArgumentParser(description="Build full_df from feature SQL and write Delta")
+    parser.add_argument("--sql", type=Path, default=default_sql, help="Path to training_data.sql")
+    args = parser.parse_args()
+
+    full_df = load_full_df(args.sql)
+    save_full_df(full_df)
+    print(f"Wrote {len(full_df):,} rows to {schema}.{full_df_table}")

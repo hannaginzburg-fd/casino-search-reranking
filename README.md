@@ -8,11 +8,13 @@ LightGBM reranker for casino search: build **`full_df`** from Databricks feature
 src/data/training_data.sql   # Feature pipeline → temp view base_features
 src/data/constants.py        # Pipeline date / lookback constants
 src/data/config.py           # Column rules
-src/load_data.py        # Spark SQL → full_df (pandas)
+src/load_data.py        # Spark SQL → full_df Delta (step 1)
 src/features.py         # Train vs inference feature matrices
-src/train.py            # Fit + save model
-src/inference.py        # Score holdout week (game_position nullified)
-notebooks/train.py      # Databricks notebook entrypoint
+src/train.py            # Fit + save model from Delta (step 2)
+src/inference.py        # Score holdout week (step 3)
+notebooks/load_data.py  # Databricks task 1
+notebooks/train.py      # Databricks task 2
+notebooks/inference.py  # Databricks task 3
 ```
 
 ## Column rules
@@ -25,38 +27,18 @@ notebooks/train.py      # Databricks notebook entrypoint
 
 `game_position` is used in training (known on impressions); it is cleared at inference because rank is not known yet.
 
-## Train (local / Databricks Connect)
+## Pipeline (run in order)
 
 ```bash
 python -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 
 cd src
-python train.py
+python load_data.py    # 1. feature SQL → full_df Delta
+python train.py        # 2. train (excludes last holdout_period days) → train_df Delta + artifacts/
+python inference.py    # 3. score holdout week → lgbm_inferences Delta
 ```
 
-`train.py` fits on all rows except the last `holdout_period` days by `event_date`, then runs inference on that holdout week.
+Table names and lookbacks live in `src/data/constants.py`. Each Delta write adds `inserted_ts`.
 
-Re-train from cached Delta table (skip feature SQL):
-
-```bash
-cd src
-python train.py --from-table
-```
-
-Writes `full_df` and `train_df` to `sandbox.group_data_science.cas_search_reranking_*` (see `src/data/constants.py`). Each write adds an `inserted_ts` column.
-
-Outputs: `artifacts/search_click_lgbm.txt`, `artifacts/feature_columns.json`, Delta tables above.
-
-## Inference
-
-```bash
-cd src
-python inference.py
-```
-
-Re-score holdout only (after training): same split from `full_df` Delta table. Scores land in `sandbox.group_data_science.cas_search_reranking_lgbm_inferences` (with `inserted_ts`).
-
-## Databricks
-
-Clone this repo as a **Repo** under your user workspace, or run `notebooks/train.py` on a cluster with access to the tables in `src/data/training_data.sql`.
+**Databricks job:** three tasks in sequence — same commands or `notebooks/load_data.py` → `notebooks/train.py` → `notebooks/inference.py` on a cluster with access to the SQL sources and `sandbox.group_data_science`.
