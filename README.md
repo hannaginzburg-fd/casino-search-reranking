@@ -12,9 +12,9 @@ src/load_data.py        # Spark SQL → full_df Delta (step 1)
 src/features.py         # Train vs inference feature matrices
 src/train.py            # Fit + save model from Delta (step 2)
 src/inference.py        # Score holdout week (step 3)
-notebooks/load_data.py  # Databricks task 1
-notebooks/train.py      # Databricks task 2
-notebooks/inference.py  # Databricks task 3
+notebooks/load_data.ipynb   # Databricks task 1
+notebooks/train.ipynb       # Databricks task 2
+notebooks/inference.ipynb   # Databricks task 3
 ```
 
 ## Column rules
@@ -41,4 +41,4 @@ python inference.py    # 3. score holdout week → lgbm_inferences Delta
 
 Table names and lookbacks live in `src/data/constants.py`. Each Delta write adds `inserted_ts`.
 
-**Databricks job:** three tasks in sequence — same commands or `notebooks/load_data.py` → `notebooks/train.py` → `notebooks/inference.py` on a cluster with access to the SQL sources and `sandbox.group_data_science`.
+**Databricks job:** three tasks in sequence — same commands or `notebooks/load_data.ipynb` → `notebooks/train.ipynb` → `notebooks/inference.ipynb` on a cluster with access to the SQL sources and `sandbox.group_data_science`.
