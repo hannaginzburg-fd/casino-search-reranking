@@ -6,8 +6,10 @@ from pathlib import Path
 import lightgbm as lgb
 import pandas as pd
 
-from config import DEFAULT_FEATURE_LIST_PATH, DEFAULT_MODEL_PATH
+from data.config import DEFAULT_FEATURE_LIST_PATH, DEFAULT_MODEL_PATH
+from data.constants import full_df_table, inferences_table
 from features import load_feature_columns, prepare_inference_features
+from load_data import save_inferences
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
@@ -26,18 +28,23 @@ def predict_proba(
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Score rows with trained LightGBM (game_position nullified)")
-    parser.add_argument("--input-parquet", type=Path, required=True, help="Rows with same schema as full_df")
-    parser.add_argument("--output-parquet", type=Path, required=True)
+    parser.add_argument(
+        "--input-table",
+        default=full_df_table,
+        help="Delta table with same schema as full_df (default: cas_search_reranking_full_df)",
+    )
     parser.add_argument("--model-path", type=Path, default=REPO_ROOT / DEFAULT_MODEL_PATH)
     parser.add_argument("--feature-list-path", type=Path, default=REPO_ROOT / DEFAULT_FEATURE_LIST_PATH)
     args = parser.parse_args()
 
-    full_df = pd.read_parquet(args.input_parquet)
+    from spark_session import get_spark
+
+    full_df = get_spark().table(args.input_table).toPandas()
     scores = predict_proba(full_df, model_path=args.model_path, feature_list_path=args.feature_list_path)
     out = full_df.copy()
     out["click_proba"] = scores
-    out.to_parquet(args.output_parquet, index=False)
-    print(f"Wrote {len(out):,} scored rows to {args.output_parquet}")
+    save_inferences(out)
+    print(f"Wrote {len(out):,} scored rows to {inferences_table}")
 
 
 if __name__ == "__main__":
