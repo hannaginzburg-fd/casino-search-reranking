@@ -5,8 +5,9 @@ LightGBM reranker for casino search: build **`full_df`** from Databricks feature
 ## Layout
 
 ```
-sql/training_data.sql   # Feature pipeline → temp view base_features
-src/config.py           # Column rules
+src/data/training_data.sql   # Feature pipeline → temp view base_features
+src/data/constants.py        # Pipeline date / lookback constants
+src/data/config.py           # Column rules
 src/load_data.py        # Spark SQL → full_df (pandas)
 src/features.py         # Train vs inference feature matrices
 src/train.py            # Fit + save model
@@ -31,27 +32,29 @@ python -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 
 cd src
-python train.py --sql ../sql/training_data.sql --save-parquet ../artifacts/full_df.parquet
+python train.py
 ```
 
-Re-train from cached parquet:
+Re-train from cached Delta table (skip feature SQL):
 
 ```bash
 cd src
-python train.py --from-parquet ../artifacts/full_df.parquet
+python train.py --from-table
 ```
 
-Outputs: `artifacts/search_click_lgbm.txt`, `artifacts/feature_columns.json`, optional `artifacts/full_df.parquet`.
+Writes `full_df` and `train_df` to `sandbox.group_data_science.cas_search_reranking_*` (see `src/data/constants.py`). Each write adds an `inserted_ts` column.
+
+Outputs: `artifacts/search_click_lgbm.txt`, `artifacts/feature_columns.json`, Delta tables above.
 
 ## Inference
 
 ```bash
 cd src
-python predict.py \
-  --input-parquet ../artifacts/full_df.parquet \
-  --output-parquet ../artifacts/scored.parquet
+python predict.py
 ```
+
+Scores land in `sandbox.group_data_science.cas_search_reranking_lgbm_inferences` (with `inserted_ts`).
 
 ## Databricks
 
-Clone this repo as a **Repo** under your user workspace, or run `notebooks/train.py` on a cluster with access to the tables in `sql/training_data.sql`.
+Clone this repo as a **Repo** under your user workspace, or run `notebooks/train.py` on a cluster with access to the tables in `src/data/training_data.sql`.

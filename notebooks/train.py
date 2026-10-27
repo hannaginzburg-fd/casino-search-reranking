@@ -10,15 +10,15 @@ sys.path.insert(0, str(repo_src))
 from load_data import load_full_df, save_full_df
 from train import train
 
-from config import DEFAULT_FEATURE_LIST_PATH, DEFAULT_FULL_DF_PATH, DEFAULT_MODEL_PATH
+from data.config import DEFAULT_FEATURE_LIST_PATH, DEFAULT_MODEL_PATH
 
 REPO_ROOT = repo_src.parent
-SQL_PATH = REPO_ROOT / "sql" / "training_data.sql"
+SQL_PATH = repo_src / "data" / "training_data.sql"
 
 # COMMAND ----------
 
 full_df = load_full_df(SQL_PATH)
-save_full_df(full_df, REPO_ROOT / DEFAULT_FULL_DF_PATH)
+save_full_df(full_df)
 print(f"full_df: {full_df.shape}")
 
 # COMMAND ----------

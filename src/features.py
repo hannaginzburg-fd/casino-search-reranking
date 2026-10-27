@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from config import EXCLUDE_FROM_TRAINING, INFERENCE_NULL_COLUMNS, LABEL_COLUMN
+from data.config import EXCLUDE_FROM_TRAINING, INFERENCE_NULL_COLUMNS, LABEL_COLUMN
 
 
 def training_matrix(full_df: pd.DataFrame) -> tuple[pd.DataFrame, pd.Series, list[str]]:
