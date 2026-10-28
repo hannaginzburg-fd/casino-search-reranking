@@ -1,14 +1,17 @@
 from __future__ import annotations
 
+from datetime import timedelta
 from pathlib import Path
 
 import pandas as pd
 from pyspark.sql import functions as F
 
+from data.config import EXCLUDE_FROM_TRAINING
 from data.constants import (
     contest_history_lookback_days,
     full_df_start_date,
     full_df_table,
+    holdout_period,
     inferences_table,
     schema,
     train_df_table,
@@ -47,8 +50,22 @@ def save_full_df() -> None:
     )
 
 
-def load_full_df_table() -> pd.DataFrame:
-    return get_spark().table(f"{schema}.{full_df_table}").toPandas()
+def load_train_df_table() -> pd.DataFrame:
+    full = get_spark().table(f"{schema}.{full_df_table}")
+    max_date = full.agg(F.max("event_date")).first()[0]
+    holdout_start = max_date - timedelta(days=holdout_period - 1)
+    train = full.filter(F.col("event_date") < F.lit(holdout_start))
+    columns = [c for c in train.columns if c not in EXCLUDE_FROM_TRAINING]
+    return train.select(columns).toPandas()
+
+
+def load_holdout_df_table() -> pd.DataFrame:
+    full = get_spark().table(f"{schema}.{full_df_table}")
+    max_date = full.agg(F.max("event_date")).first()[0]
+    holdout_start = max_date - timedelta(days=holdout_period - 1)
+    holdout = full.filter(F.col("event_date") >= F.lit(holdout_start))
+    columns = [c for c in holdout.columns if c != "inserted_ts"]
+    return holdout.select(columns).toPandas()
 
 
 def save_train_df(train_df: pd.DataFrame) -> None:

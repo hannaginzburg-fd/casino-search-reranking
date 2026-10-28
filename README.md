@@ -43,4 +43,4 @@ Table names and lookbacks live in `src/data/constants.py`. Each Delta write adds
 
 **Databricks job:** three tasks in sequence — same commands or `notebooks/load_data.ipynb` → `notebooks/train.ipynb` → `notebooks/inference.ipynb` on a cluster with access to the SQL sources and `sandbox.group_data_science`.
 
-**Cluster Spark config (required for train / inference):** `spark.driver.maxResultSize` is static and cannot be set in code after the session starts. On the job cluster, add e.g. `spark.driver.maxResultSize` = `8g` (and enough `spark.driver.memory` if `load_full_df_table().toPandas()` is large). Step 1 (`load_data`) writes Delta in Spark and does not collect the full dataset to the driver.
+**Cluster Spark config (train / inference):** `spark.driver.maxResultSize` must be set on the cluster (not in code). Train collects only the non-holdout slice and drops ID/keyword columns in Spark first; inference collects only the holdout week. If train still exceeds the limit, raise `spark.driver.maxResultSize` and `spark.driver.memory` (e.g. `16g` / `32g`) or shrink the SQL date window in `constants.py`.

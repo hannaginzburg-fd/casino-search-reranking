@@ -7,9 +7,9 @@ import lightgbm as lgb
 import pandas as pd
 
 from data.config import DEFAULT_FEATURE_LIST_PATH, DEFAULT_MODEL_PATH
-from data.constants import holdout_period, inferences_table, schema
+from data.constants import inferences_table, schema
 from features import load_feature_columns, prepare_inference_features
-from load_data import load_full_df_table, save_inferences
+from load_data import load_holdout_df_table, save_inferences
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
@@ -35,11 +35,7 @@ def main() -> None:
     parser.add_argument("--feature-list-path", type=Path, default=REPO_ROOT / DEFAULT_FEATURE_LIST_PATH)
     args, _ = parser.parse_known_args()
 
-    full_df = load_full_df_table()
-    event_date = pd.to_datetime(full_df["event_date"])
-    holdout_start = event_date.max() - pd.Timedelta(days=holdout_period - 1)
-    holdout_df = full_df[event_date >= holdout_start]
-
+    holdout_df = load_holdout_df_table()
     infer_holdout(holdout_df, model_path=args.model_path, feature_list_path=args.feature_list_path)
 
 
