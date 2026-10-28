@@ -6,6 +6,7 @@ from pathlib import Path
 from pyspark.ml import PipelineModel
 from pyspark.ml.functions import vector_to_array
 from pyspark.sql import functions as F
+from pyspark.sql.types import BooleanType
 
 from data.config import DEFAULT_MODEL_PATH, INFERENCE_NULL_COLUMNS, XGB_PROBABILITY_COL
 from data.constants import inferences_table, schema
@@ -19,6 +20,10 @@ def infer_holdout(*, model_path: Path) -> None:
     for col in INFERENCE_NULL_COLUMNS:
         if col in holdout.columns:
             holdout = holdout.withColumn(col, F.lit(None))
+
+    for col in holdout.columns:
+        if isinstance(holdout.schema[col].dataType, BooleanType):
+            holdout = holdout.withColumn(col, F.col(col).cast("double"))
 
     base_cols = holdout.columns
     pipeline = PipelineModel.load(str(model_path))

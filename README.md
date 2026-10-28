@@ -36,7 +36,7 @@ python inference.py
 
 **Databricks job:** `load_data.ipynb` → `train.ipynb` → `inference.ipynb`.
 
-**Dependent library (train + inference):** PyPI **`xgboost==3.1.1`** (same as sports affinity notebook). No Maven / SynapseML required.
+**Dependent library (train + inference):** attach PyPI **`xgboost==3.1.1`** on the job cluster. You do not need `%pip install` in the notebooks if the library is on the cluster. Use `%pip` only for interactive runs without job libraries.
 
 Training uses **`SparkXGBClassifier`** on workers (`barrier_mode=True`, `num_workers` from data size). Data stays in Spark — no full-table **`toPandas()`** on train.
 

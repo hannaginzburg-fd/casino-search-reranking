@@ -6,6 +6,7 @@ from pathlib import Path
 from pyspark.ml import Pipeline
 from pyspark.ml.evaluation import BinaryClassificationEvaluator
 from pyspark.ml.feature import StringIndexer, VectorAssembler
+from pyspark.sql import functions as F
 from pyspark.sql.types import BooleanType, StringType
 from xgboost.spark import SparkXGBClassifier
 
@@ -29,11 +30,14 @@ def train(*, model_path: Path, feature_list_path: Path, random_state: int = 42) 
     save_feature_columns(feature_list_path, feature_cols)
     save_train_spark_df(sdf.select(*feature_cols, LABEL_COLUMN))
 
+    for col in feature_cols:
+        if isinstance(sdf.schema[col].dataType, BooleanType):
+            sdf = sdf.withColumn(col, F.col(col).cast("double"))
+
     prep_stages = []
     vec_cols = []
     for col in feature_cols:
-        dtype = sdf.schema[col].dataType
-        if isinstance(dtype, (StringType, BooleanType)):
+        if isinstance(sdf.schema[col].dataType, StringType):
             indexed = f"__idx_{col}"
             prep_stages.append(StringIndexer(inputCol=col, outputCol=indexed, handleInvalid="keep"))
             vec_cols.append(indexed)
