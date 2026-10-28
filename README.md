@@ -44,4 +44,6 @@ Model artifact: **`artifacts/xgb_spark_pipeline/`** (Spark ML Pipeline: encoders
 
 Optional: tune **`train_sample_fraction`** / **`train_max_rows`** in `constants.py` to shrink the Spark training set.
 
-**Cluster:** your **8 × rgd-fleet.xlarge** setup is appropriate. Use default or **`8g`** for `spark.driver.maxResultSize`; large collects are not needed for train/inference.
+**Cluster:** **8 × rgd-fleet.xlarge** works for load + Spark XGBoost. Use default or **`8g`** for `spark.driver.maxResultSize`.
+
+**Shared access mode:** keep **`xgb_barrier_mode = False`** in `constants.py` (default). If you still see `sparkContext` / JVM errors, set **`xgb_num_workers = 1`** or switch the job to **single-user / assigned** compute (required for `barrier_mode=True` distributed XGB like the sports affinity notebook).

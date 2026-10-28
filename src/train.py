@@ -17,6 +17,7 @@ from data.config import (
     XGB_PREDICTION_COL,
     XGB_PROBABILITY_COL,
 )
+from data.constants import xgb_barrier_mode, xgb_num_workers
 from features import save_feature_columns
 from load_data import load_train_spark_df, save_train_spark_df
 from spark_session import get_spark
@@ -46,20 +47,21 @@ def train(*, model_path: Path, feature_list_path: Path, random_state: int = 42) 
     prep_stages.append(VectorAssembler(inputCols=vec_cols, outputCol="features", handleInvalid="keep"))
 
     train_sdf, val_sdf = sdf.randomSplit([0.8, 0.2], seed=random_state)
-    row_count = train_sdf.count()
-    data_size_gb = row_count * len(sdf.columns) * 8 / (1024**3)
-    num_workers = max(2, min(8, int(data_size_gb) or 2))
-    print(f"SparkXGBClassifier num_workers={num_workers} (train rows ~{row_count:,})")
+    train_rows_preview = train_sdf.count()
+    print(
+        f"SparkXGBClassifier num_workers={xgb_num_workers}, barrier_mode={xgb_barrier_mode} "
+        f"(train rows ~{train_rows_preview:,})"
+    )
 
     xgb = SparkXGBClassifier(
         features_col="features",
         label_col=LABEL_COLUMN,
         prediction_col=XGB_PREDICTION_COL,
         probability_col=XGB_PROBABILITY_COL,
-        num_workers=num_workers,
+        num_workers=xgb_num_workers,
         force_repartition=False,
         use_gpu=False,
-        barrier_mode=True,
+        barrier_mode=xgb_barrier_mode,
         eval_metric="logloss",
         random_state=random_state,
         verbosity=0,
