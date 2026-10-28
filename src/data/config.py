@@ -13,6 +13,7 @@ EXCLUDE_FROM_TRAINING = [
     "search_keyword",
     "base_similarity_score",
     "inserted_ts",
+    "game_position"
 ]
 
 # Not available at serving time — set to null (or omitted) at inference.
