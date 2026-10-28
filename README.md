@@ -42,3 +42,5 @@ python inference.py    # 3. score holdout week → lgbm_inferences Delta
 Table names and lookbacks live in `src/data/constants.py`. Each Delta write adds `inserted_ts`.
 
 **Databricks job:** three tasks in sequence — same commands or `notebooks/load_data.ipynb` → `notebooks/train.ipynb` → `notebooks/inference.ipynb` on a cluster with access to the SQL sources and `sandbox.group_data_science`.
+
+**Cluster Spark config (required for train / inference):** `spark.driver.maxResultSize` is static and cannot be set in code after the session starts. On the job cluster, add e.g. `spark.driver.maxResultSize` = `8g` (and enough `spark.driver.memory` if `load_full_df_table().toPandas()` is large). Step 1 (`load_data`) writes Delta in Spark and does not collect the full dataset to the driver.
