@@ -79,7 +79,7 @@ if __name__ == "__main__":
     default_sql = Path(__file__).resolve().parent / "data" / "training_data.sql"
     parser = argparse.ArgumentParser(description="Build full_df from feature SQL and write Delta")
     parser.add_argument("--sql", type=Path, default=default_sql, help="Path to training_data.sql")
-    args = parser.parse_args()
+    args, _ = parser.parse_known_args()
 
     run_sql_script(args.sql)
     save_full_df()

@@ -72,7 +72,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Train LightGBM from full_df Delta (holdout week excluded)")
     parser.add_argument("--model-path", type=Path, default=REPO_ROOT / DEFAULT_MODEL_PATH)
     parser.add_argument("--feature-list-path", type=Path, default=REPO_ROOT / DEFAULT_FEATURE_LIST_PATH)
-    args = parser.parse_args()
+    args, _ = parser.parse_known_args()
 
     full_df = load_full_df_table()
     event_date = pd.to_datetime(full_df["event_date"])
