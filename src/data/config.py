@@ -18,7 +18,8 @@ EXCLUDE_FROM_TRAINING = [
 # Not available at serving time — set to null (or omitted) at inference.
 INFERENCE_NULL_COLUMNS = ["game_position"]
 
-DEFAULT_MODEL_PATH = "artifacts/xgb_spark_pipeline"
+DEFAULT_SPARK_MODEL_PATH = "artifacts/xgb_spark_pipeline"
+DEFAULT_DRIVER_MODEL_PATH = "artifacts/xgb_model.json"
 DEFAULT_FEATURE_LIST_PATH = "artifacts/feature_columns.json"
 
 XGB_PREDICTION_COL = "click_pred"

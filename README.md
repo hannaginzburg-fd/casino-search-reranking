@@ -46,4 +46,6 @@ Optional: tune **`train_sample_fraction`** / **`train_max_rows`** in `constants.
 
 **Cluster:** **8 × rgd-fleet.xlarge** works for load + Spark XGBoost. Use default or **`8g`** for `spark.driver.maxResultSize`.
 
-**Shared access mode:** keep **`xgb_barrier_mode = False`** in `constants.py` (default). If you still see `sparkContext` / JVM errors, set **`xgb_num_workers = 1`** or switch the job to **single-user / assigned** compute (required for `barrier_mode=True` distributed XGB like the sports affinity notebook).
+**Shared access mode (default):** **`spark_xgb_training = False`** — trains **`xgboost.XGBClassifier`** on a **sampled** subset (`train_max_rows`, default 1M) on the driver, then scores holdout in Spark via **`mapInPandas`** (model copied to **`driver_model_dbfs_path`** under FileStore).
+
+**Single-user / assigned cluster (full data, sports-affinity style):** set **`spark_xgb_training = True`** and use **`SparkXGBClassifier`** with **`xgb_barrier_mode = True`**, **`xgb_num_workers = 8`**. Shared clusters cannot run Spark XGB (JVM / `sparkContext` restriction).
