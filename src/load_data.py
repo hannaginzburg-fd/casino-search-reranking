@@ -36,17 +36,10 @@ def run_sql_script(sql_path: str | Path) -> None:
             spark.sql(stmt)
 
 
-def load_full_df(sql_path: str | Path) -> pd.DataFrame:
-    """Execute feature SQL in Spark and return the labeled training frame as pandas."""
-    run_sql_script(sql_path)
-    spark = get_spark()
-    return spark.sql(FINAL_QUERY).toPandas()
-
-
-def save_full_df(full_df: pd.DataFrame) -> None:
+def save_full_df() -> None:
     (
         get_spark()
-        .createDataFrame(full_df)
+        .sql(FINAL_QUERY)
         .withColumn("inserted_ts", F.current_timestamp())
         .write.format("delta")
         .mode("overwrite")
@@ -88,6 +81,7 @@ if __name__ == "__main__":
     parser.add_argument("--sql", type=Path, default=default_sql, help="Path to training_data.sql")
     args = parser.parse_args()
 
-    full_df = load_full_df(args.sql)
-    save_full_df(full_df)
-    print(f"Wrote {len(full_df):,} rows to {schema}.{full_df_table}")
+    run_sql_script(args.sql)
+    save_full_df()
+    row_count = get_spark().table(f"{schema}.{full_df_table}").count()
+    print(f"Wrote {row_count:,} rows to {schema}.{full_df_table}")

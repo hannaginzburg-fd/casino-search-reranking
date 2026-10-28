@@ -3,8 +3,10 @@ from __future__ import annotations
 
 def get_spark():
     try:
-        return spark  # type: ignore[name-defined]
+        session = spark  # type: ignore[name-defined]
     except NameError:
         from databricks.connect import DatabricksSession
 
-        return DatabricksSession.builder.getOrCreate()
+        session = DatabricksSession.builder.getOrCreate()
+    session.conf.set("spark.driver.maxResultSize", "8g")
+    return session
