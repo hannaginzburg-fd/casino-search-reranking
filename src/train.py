@@ -8,9 +8,15 @@ import pandas as pd
 from sklearn.metrics import roc_auc_score
 from sklearn.model_selection import train_test_split
 
-from data.config import DEFAULT_FEATURE_LIST_PATH, DEFAULT_MODEL_PATH, LABEL_COLUMN
+from data.config import (
+    DEFAULT_FEATURE_LIST_PATH,
+    DEFAULT_MODEL_PATH,
+    DEFAULT_SPARK_MODEL_PATH,
+    LABEL_COLUMN,
+)
+from data.constants import use_synapseml
 from features import save_feature_columns, training_matrix
-from load_data import load_train_df_table, save_train_df
+from load_data import load_train_df_table, load_train_spark_df, save_train_df, save_train_spark_df
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
@@ -67,15 +73,72 @@ def train(
     return metrics
 
 
+def train_on_spark(*, model_path: Path, feature_list_path: Path, random_state: int = 42) -> dict[str, float]:
+    from pyspark.ml import Pipeline
+    from pyspark.ml.evaluation import BinaryClassificationEvaluator
+    from pyspark.ml.feature import StringIndexer, VectorAssembler
+    from pyspark.sql.types import BooleanType, StringType
+    from synapse.ml.lightgbm import LightGBMClassifier
+
+    sdf = load_train_spark_df()
+    feature_cols = [c for c in sdf.columns if c != LABEL_COLUMN]
+    save_feature_columns(feature_list_path, feature_cols)
+    save_train_spark_df(sdf.select(*feature_cols, LABEL_COLUMN))
+
+    stages = []
+    vec_cols = []
+    for col in feature_cols:
+        dtype = sdf.schema[col].dataType
+        if isinstance(dtype, (StringType, BooleanType)):
+            indexed = f"__idx_{col}"
+            stages.append(StringIndexer(inputCol=col, outputCol=indexed, handleInvalid="keep"))
+            vec_cols.append(indexed)
+        else:
+            vec_cols.append(col)
+    stages.append(VectorAssembler(inputCols=vec_cols, outputCol="features", handleInvalid="keep"))
+    stages.append(
+        LightGBMClassifier(
+            featuresCol="features",
+            labelCol=LABEL_COLUMN,
+            objective="binary",
+            numIterations=500,
+            learningRate=0.05,
+            numLeaves=63,
+            baggingFraction=0.8,
+            featureFraction=0.8,
+        )
+    )
+
+    train_sdf, val_sdf = sdf.randomSplit([0.8, 0.2], seed=random_state)
+    pipeline = Pipeline(stages=stages)
+    model = pipeline.fit(train_sdf)
+
+    val_pred = model.transform(val_sdf)
+    val_auc = BinaryClassificationEvaluator(
+        labelCol=LABEL_COLUMN, rawPredictionCol="rawPrediction", metricName="areaUnderROC"
+    ).evaluate(val_pred)
+
+    model_path.parent.mkdir(parents=True, exist_ok=True)
+    model.write().overwrite().save(str(model_path))
+    metrics = {"val_auc": float(val_auc), "train_rows": train_sdf.count(), "val_rows": val_sdf.count()}
+    return metrics
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Train LightGBM from full_df Delta (holdout week excluded)")
-    parser.add_argument("--model-path", type=Path, default=REPO_ROOT / DEFAULT_MODEL_PATH)
+    parser.add_argument("--model-path", type=Path, default=None)
     parser.add_argument("--feature-list-path", type=Path, default=REPO_ROOT / DEFAULT_FEATURE_LIST_PATH)
     args, _ = parser.parse_known_args()
 
-    train_df = load_train_df_table()
-    print(f"training rows: {len(train_df):,} (holdout week excluded in Spark before collect)")
-    metrics = train(train_df, model_path=args.model_path, feature_list_path=args.feature_list_path)
+    if use_synapseml:
+        model_path = args.model_path or (REPO_ROOT / DEFAULT_SPARK_MODEL_PATH)
+        metrics = train_on_spark(model_path=model_path, feature_list_path=args.feature_list_path)
+    else:
+        model_path = args.model_path or (REPO_ROOT / DEFAULT_MODEL_PATH)
+        train_df = load_train_df_table()
+        print(f"training rows: {len(train_df):,} (holdout week excluded in Spark before collect)")
+        metrics = train(train_df, model_path=model_path, feature_list_path=args.feature_list_path)
+
     print(f"Training complete: {metrics}")
 
 

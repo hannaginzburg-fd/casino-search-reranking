@@ -43,4 +43,21 @@ Table names and lookbacks live in `src/data/constants.py`. Each Delta write adds
 
 **Databricks job:** three tasks in sequence — same commands or `notebooks/load_data.ipynb` → `notebooks/train.ipynb` → `notebooks/inference.ipynb` on a cluster with access to the SQL sources and `sandbox.group_data_science`.
 
-**Cluster Spark config (train / inference):** `spark.driver.maxResultSize` must be set on the cluster (not in code). Train collects only the non-holdout slice and drops ID/keyword columns in Spark first; inference collects only the holdout week. If train still exceeds the limit, raise `spark.driver.maxResultSize` and `spark.driver.memory` (e.g. `16g` / `32g`) or shrink the SQL date window in `constants.py`.
+**Recommended: SynapseML on Spark (`use_synapseml = True` in `constants.py`)** — trains LightGBM on **workers**, no multi‑GB `toPandas()` on the driver. Your **8 × rgd-fleet.xlarge (32 GB)** cluster is appropriate for load + train + inference.
+
+**Cluster library (required for SynapseML):** Maven coordinate  
+`com.microsoft.azure:synapseml_2.13:1.1.3-spark4.1`  
+Repository: `https://mmlspark.blob.core.windows.net/maven`  
+Attach to the job cluster and restart. Also add PyPI **`synapseml==1.1.3`** as a dependent library if imports fail.
+
+**Spark config with SynapseML:** you do **not** need a large `spark.driver.maxResultSize` for train/inference. Defaults (or `4g`–`8g`) are fine. **Do not** set `maxResultSize` to `16g` on a **32 GB** driver unless you also raise **`spark.driver.memory`** and accept OOM risk — `maxResultSize` is not a substitute for driver RAM.
+
+**Example job cluster (SynapseML path):**
+
+| Setting | Suggestion |
+|--------|------------|
+| Driver / workers | `rgd-fleet.xlarge`, 8 workers (as now) |
+| `spark.driver.maxResultSize` | **`8g`** or remove override (use default) |
+| `spark.driver.memory` | leave default unless load step needs more driver heap |
+
+**Pandas LightGBM fallback (`use_synapseml = False`):** needs **`train_sample_fraction`** / **`train_max_rows`** or a **64 GB+ driver** — not recommended at full data scale on `rgd-fleet.xlarge`.

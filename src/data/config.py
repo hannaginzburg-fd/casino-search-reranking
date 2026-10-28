@@ -19,4 +19,5 @@ EXCLUDE_FROM_TRAINING = [
 INFERENCE_NULL_COLUMNS = ["game_position"]
 
 DEFAULT_MODEL_PATH = "artifacts/search_click_lgbm.txt"
+DEFAULT_SPARK_MODEL_PATH = "artifacts/lightgbm_spark_pipeline"
 DEFAULT_FEATURE_LIST_PATH = "artifacts/feature_columns.json"
