@@ -1,6 +1,6 @@
 # casino-search-reranking
 
-Spark XGBoost reranker for casino search: build **`full_df`** from Databricks feature SQL, train on **`label`**, score the holdout week with **`game_position`** nullified.
+Spark XGBoost reranker for casino search: build **`full_df`** from Databricks feature SQL, train on **`label`**, score the holdout week with **`game_position`** and **`final_similarity_score`** handled together (`SCORE_OR_RANK_LEAKAGE_COLS` in `config.py`).
 
 ## Layout
 
@@ -23,7 +23,7 @@ notebooks/inference.ipynb
 |-------|----------|
 | **`full_df`** | All columns from `base_features` where `final_similarity_score IS NOT NULL` |
 | **Training** | Last **`holdout_period`** days held out in Spark; target **`label`** |
-| **Inference** | Holdout slice; **`game_position`** set to null before scoring |
+| **Inference** | Holdout slice; **`SCORE_OR_RANK_LEAKAGE_COLS`** nulled on scoring copy only (logged values kept in Delta) |
 
 ## Pipeline (run in order)
 

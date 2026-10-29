@@ -4,6 +4,12 @@ from data.constants import *  # noqa: F403
 
 LABEL_COLUMN = "label"
 
+# Logged slot + baseline search score — same policy for train and serve (see below).
+SCORE_OR_RANK_LEAKAGE_COLS = ["game_position", "final_similarity_score"]
+
+# When True, neither column is a model feature; both stay on the inference Delta for eval.
+EXCLUDE_SCORE_OR_RANK_LEAKAGE_FROM_TRAINING = False
+
 # Kept in full_df for analysis / joins; dropped before model fit.
 EXCLUDE_FROM_TRAINING = [
     "fanduel_user_id",
@@ -13,11 +19,11 @@ EXCLUDE_FROM_TRAINING = [
     "search_keyword",
     "base_similarity_score",
     "inserted_ts",
-    #"game_position"
+    *([] if not EXCLUDE_SCORE_OR_RANK_LEAKAGE_FROM_TRAINING else SCORE_OR_RANK_LEAKAGE_COLS),
 ]
 
-# Model inputs only — nulled on a scoring copy, not on persisted inference rows.
-INFERENCE_NULL_COLUMNS = ["game_position"]
+# Nulled on the scoring copy only (persisted inference rows keep logged values).
+INFERENCE_NULL_COLUMNS = list(SCORE_OR_RANK_LEAKAGE_COLS)
 
 # Slim Delta table for eval / SQL analysis (full feature row lives in full_df holdout).
 INFERENCE_OUTPUT_COLUMNS = [
@@ -26,8 +32,7 @@ INFERENCE_OUTPUT_COLUMNS = [
     "game_id",
     "event_date",
     "search_keyword",
-    "game_position",
-    "final_similarity_score",
+    *SCORE_OR_RANK_LEAKAGE_COLS,
     "label",
 ]
 

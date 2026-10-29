@@ -96,7 +96,9 @@ def infer_holdout_driver(*, model_path: Path, feature_list_path: Path) -> None:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Score holdout week (game_position nullified)")
+    parser = argparse.ArgumentParser(
+        description="Score holdout week (SCORE_OR_RANK_LEAKAGE_COLS nullified on scoring copy)"
+    )
     parser.add_argument("--model-path", type=Path, default=None)
     parser.add_argument("--feature-list-path", type=Path, default=REPO_ROOT / DEFAULT_FEATURE_LIST_PATH)
     args, _ = parser.parse_known_args()
