@@ -16,7 +16,13 @@ from data.config import (
     INVERSE_PROPENSITY_WEIGHTING,
     XGB_PROBABILITY_COL,
 )
-from data.constants import driver_model_dbfs_path, inferences_table, schema, spark_xgb_training
+from data.constants import (
+    driver_model_dbfs_path,
+    inferences_table,
+    sample_weight_col,
+    schema,
+    spark_xgb_training,
+)
 from features import load_feature_columns, prepare_inference_features
 from inference_leakage import apply_leakage_fill_for_scoring, compute_leakage_imputation_values
 from load_data import load_holdout_spark_df, save_inferences_spark
@@ -55,6 +61,9 @@ def infer_holdout_spark(*, model_path: Path, feature_list_path: Path) -> None:
     feature_cols = load_feature_columns(feature_list_path)
     model_input, _ = _prepare_model_input(holdout, feature_cols)
     model_input = ensure_inference_validation_column(model_input)
+    if INVERSE_PROPENSITY_WEIGHTING and sample_weight_col not in model_input.columns:
+        # SparkXGB pipeline was fit with weight_col; transform still expects the column (unused at score time).
+        model_input = model_input.withColumn(sample_weight_col, F.lit(1.0))
 
     pipeline = PipelineModel.load(str(model_path))
     scored = pipeline.transform(model_input)

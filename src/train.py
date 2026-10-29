@@ -16,6 +16,7 @@ from data.config import (
     DEFAULT_DRIVER_MODEL_PATH,
     DEFAULT_FEATURE_LIST_PATH,
     DEFAULT_SPARK_MODEL_PATH,
+    EXCLUDE_FROM_TRAINING,
     INVERSE_PROPENSITY_WEIGHTING,
     IPW_POSITION_COLUMN,
     LABEL_COLUMN,
@@ -112,7 +113,14 @@ def _prep_spark_features(sdf, feature_cols):
 def train_spark(*, model_path: Path, feature_list_path: Path, random_state: int = 42) -> dict[str, float]:
     train_sdf = load_train_spark_df()
     val_sdf = load_validation_spark_df()
-    feature_cols = [c for c in train_sdf.columns if c != LABEL_COLUMN]
+    feature_cols = [
+        c for c in train_sdf.columns if c not in EXCLUDE_FROM_TRAINING and c != LABEL_COLUMN
+    ]
+    if INVERSE_PROPENSITY_WEIGHTING and sample_weight_col not in train_sdf.columns:
+        raise ValueError(
+            f"IPW enabled but {sample_weight_col!r} missing from train frame "
+            f"(check {IPW_POSITION_COLUMN!r} on full_df and reload train slice)"
+        )
     save_feature_columns(feature_list_path, feature_cols)
     save_train_spark_df(train_sdf.select(*feature_cols, LABEL_COLUMN))
     save_validation_spark_df(val_sdf.select(*feature_cols, LABEL_COLUMN))
