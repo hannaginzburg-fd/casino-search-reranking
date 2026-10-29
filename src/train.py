@@ -149,7 +149,6 @@ def train_spark(*, model_path: Path, feature_list_path: Path, random_state: int 
         "use_gpu": False,
         "barrier_mode": xgb_barrier_mode,
         "eval_metric": "logloss",
-        "objective": "binary:logistic",
         "random_state": random_state,
         "verbosity": 0,
         "max_depth": 8,
