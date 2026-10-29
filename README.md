@@ -49,4 +49,6 @@ Optional: tune **`train_sample_fraction`** / **`train_max_rows`** in `constants.
 
 **Shared access mode (default):** **`spark_xgb_training = False`** — trains **`xgboost.XGBClassifier`** on a **sampled** subset (`train_max_rows`, default 1M) on the driver, then scores holdout in Spark via **`mapInPandas`** (model copied to **`driver_model_dbfs_path`** under FileStore).
 
-**Single-user / assigned cluster (full data, sports-affinity style):** set **`spark_xgb_training = True`** and use **`SparkXGBClassifier`** with **`xgb_barrier_mode = True`**, **`xgb_num_workers = 8`**. Shared clusters cannot run Spark XGB (JVM / `sparkContext` restriction).
+**Single-user / assigned cluster (full data):** **`spark_xgb_training = True`**. **`xgb_num_workers`** defaults to auto-cap (≤ executor cores × instances). **`xgb_barrier_mode = True`** requires that many healthy executors for the whole job.
+
+**`Could not recover from a failed barrier ResultStage`:** usually **`num_workers`** > live executor slots, an executor OOM’d during XGB, or **shared** access mode. Try: set **`xgb_num_workers`** explicitly to executor count (e.g. **`4`**), **`xgb_barrier_mode = False`**, or **`spark_xgb_training = False`** (driver sample). Expand the **Spark UI → failed stage → stderr** for the root error. Turn **`share_df_summaries`** off while debugging train.

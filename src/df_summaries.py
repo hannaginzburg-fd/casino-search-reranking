@@ -199,24 +199,32 @@ def _quantile_summary(sdf: DataFrame, col: str) -> dict:
 
 
 def _ctr_by_quant_bins(sdf: DataFrame, col: str, n_bins: int = 20) -> pd.DataFrame:
-    from pyspark.sql.window import Window
-
-    w = Window.orderBy(F.col(col))
-    pdf = (
-        sdf.filter(F.col(col).isNotNull())
-        .withColumn("_bin", F.ntile(n_bins).over(w))
-        .groupBy("_bin")
-        .agg(
-            F.avg(LABEL_COLUMN).alias(CTR_LABEL),
-            F.min(col).alias("bin_min"),
-            F.max(col).alias("bin_max"),
-            F.count(F.lit(1)).alias("row_count"),
+    """Quantile bins via approxQuantile (no global Window — safe on large train)."""
+    filtered = sdf.filter(F.col(col).isNotNull())
+    if filtered.limit(1).count() == 0:
+        return pd.DataFrame()
+    probs = [i / n_bins for i in range(n_bins + 1)]
+    edges = filtered.stat.approxQuantile(col, probs, relativeError=0.05)
+    edges = sorted({float(x) for x in edges if x is not None})
+    if len(edges) < 2:
+        return pd.DataFrame()
+    bucket = F.lit(None)
+    for i in range(len(edges) - 1):
+        lo, hi = edges[i], edges[i + 1]
+        is_last = i == len(edges) - 2
+        in_bin = (F.col(col) >= F.lit(lo)) & (
+            F.col(col) <= F.lit(hi) if is_last else F.col(col) < F.lit(hi)
         )
+        label = f"{lo:.4g}-{hi:.4g}"
+        bucket = F.when(in_bin, F.lit(label)).otherwise(bucket)
+    pdf = (
+        filtered.withColumn("_bin", bucket)
+        .filter(F.col("_bin").isNotNull())
+        .groupBy("_bin")
+        .agg(F.avg(LABEL_COLUMN).alias(CTR_LABEL), F.count(F.lit(1)).alias("row_count"))
         .orderBy("_bin")
-        .withColumn("bin_label", F.concat(F.col("bin_min").cast("string"), F.lit("–"), F.col("bin_max").cast("string")))
-        .select("bin_label", CTR_LABEL, "row_count")
         .toPandas()
-        .rename(columns={"bin_label": col})
+        .rename(columns={"_bin": col})
     )
     return pdf
 

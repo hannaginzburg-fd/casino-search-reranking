@@ -41,6 +41,35 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 SUMMARY_OUTPUT_DIR = REPO_ROOT / "artifacts" / "training_summaries"
 
 
+def _spark_task_slots() -> int:
+    spark = get_spark()
+    conf = spark.sparkContext.getConf()
+    instances = conf.get("spark.executor.instances")
+    cores = int(conf.get("spark.executor.cores", "1") or "1")
+    if instances and str(instances).isdigit():
+        return max(1, int(instances) * cores)
+    # Dynamic allocation / Databricks: use default parallelism as a conservative slot estimate
+    return max(1, spark.sparkContext.defaultParallelism)
+
+
+def _resolve_xgb_num_workers(train_sdf, *, requested: int | None) -> int:
+    want = requested if requested is not None else 8
+    slots = _spark_task_slots()
+    parts = max(1, train_sdf.rdd.getNumPartitions())
+    effective = max(1, min(want, slots, parts))
+    if effective != want:
+        print(
+            f"Adjusted xgb num_workers {want} -> {effective} "
+            f"(task_slots~{slots}, train_partitions={parts})"
+        )
+    if xgb_barrier_mode and effective < 2:
+        print(
+            "Warning: barrier_mode with num_workers=1 is fragile; "
+            "set xgb_barrier_mode=False or add executors."
+        )
+    return effective
+
+
 def _maybe_share_df_summaries() -> None:
     if not share_df_summaries:
         return
@@ -76,8 +105,10 @@ def train_spark(*, model_path: Path, feature_list_path: Path, random_state: int 
     for col in feature_cols:
         if isinstance(val_sdf.schema[col].dataType, BooleanType):
             val_sdf = val_sdf.withColumn(col, F.col(col).cast("double"))
+    num_workers = _resolve_xgb_num_workers(train_sdf, requested=xgb_num_workers)
+    train_sdf = train_sdf.repartition(num_workers)
     print(
-        f"SparkXGBClassifier num_workers={xgb_num_workers}, barrier_mode={xgb_barrier_mode} "
+        f"SparkXGBClassifier num_workers={num_workers}, barrier_mode={xgb_barrier_mode} "
         f"(train rows ~{train_sdf.count():,}, validation rows ~{val_sdf.count():,}) "
         f"— requires single-user / assigned cluster"
     )
@@ -87,8 +118,8 @@ def train_spark(*, model_path: Path, feature_list_path: Path, random_state: int 
         label_col=LABEL_COLUMN,
         prediction_col=XGB_PREDICTION_COL,
         probability_col=XGB_PROBABILITY_COL,
-        num_workers=xgb_num_workers,
-        force_repartition=False,
+        num_workers=num_workers,
+        force_repartition=True,
         use_gpu=False,
         barrier_mode=xgb_barrier_mode,
         eval_metric="logloss",

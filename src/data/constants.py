@@ -16,7 +16,9 @@ xgboost_version = "3.1.1"
 spark_xgb_training = True
 # Executors read this copy during mapInPandas inference (FileStore is cluster-wide).
 driver_model_dbfs_path = "/dbfs/FileStore/cas_search_reranking/xgb_model.json"
-xgb_num_workers = 8
+# None = auto-cap to cluster task slots at train time; must be <= live executors if barrier_mode=True
+xgb_num_workers = None
+# True needs multi-executor cluster with num_workers matching slots; if barrier fails, try False or driver path
 xgb_barrier_mode = True
 
 schema = "sandbox.group_data_science"
