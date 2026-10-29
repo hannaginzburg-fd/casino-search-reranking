@@ -1,5 +1,12 @@
 -- Holdout inference eval (run after inference.py).
--- Source: sandbox.group_data_science.cas_search_reranking_lgbm_inferences
+-- Source: sandbox.group_data_science.cas_search_reranking_lgbm_inferences (append-only; use latest inserted_ts)
+
+CREATE OR REPLACE TEMP VIEW inference_latest AS
+SELECT *
+FROM sandbox.group_data_science.cas_search_reranking_lgbm_inferences
+WHERE inserted_ts = (
+  SELECT max(inserted_ts) FROM sandbox.group_data_science.cas_search_reranking_lgbm_inferences
+);
 
 CREATE OR REPLACE TEMP TABLE search_inferences AS
 SELECT
@@ -9,7 +16,7 @@ SELECT
   event_date,
   final_similarity_score AS final_score,
   click_proba
-FROM sandbox.group_data_science.cas_search_reranking_lgbm_inferences;
+FROM inference_latest;
 
 -- ---------------------------------------------------------------------------
 -- click_proba distribution (0.05-wide buckets on [0, 1]; use *10 and /10.0 + 0.1 for 0.1 bins)
@@ -32,7 +39,7 @@ ORDER BY MIN(click_proba);
 CREATE OR REPLACE TEMP VIEW inference_rerank_metrics AS
 WITH src AS (
   SELECT *
-  FROM sandbox.group_data_science.cas_search_reranking_lgbm_inferences
+  FROM inference_latest
   WHERE click_proba IS NOT NULL
     AND final_similarity_score IS NOT NULL
 ),

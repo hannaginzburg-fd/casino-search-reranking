@@ -61,7 +61,7 @@ def infer_holdout_spark(*, model_path: Path, feature_list_path: Path) -> None:
     )
     out = holdout.join(probs, on="__row_id", how="inner").drop("__row_id")
     save_inferences_spark(_select_inference_output(out, INFERENCE_OUTPUT_COLUMNS))
-    print(f"Wrote scored holdout rows to {schema}.{inferences_table}")
+    print(f"Appended scored holdout rows to {schema}.{inferences_table} (inserted_ts on each row)")
 
 
 def infer_holdout_driver(*, model_path: Path, feature_list_path: Path) -> None:
@@ -92,7 +92,7 @@ def infer_holdout_driver(*, model_path: Path, feature_list_path: Path) -> None:
     probs = model_input.mapInPandas(score_partition, schema=prob_schema)
     out = holdout.join(probs, on="__row_id", how="inner").drop("__row_id")
     save_inferences_spark(_select_inference_output(out, INFERENCE_OUTPUT_COLUMNS))
-    print(f"Wrote scored holdout rows to {schema}.{inferences_table} (driver model, Spark write)")
+    print(f"Appended scored holdout rows to {schema}.{inferences_table} (driver model, inserted_ts on each row)")
 
 
 def main() -> None:

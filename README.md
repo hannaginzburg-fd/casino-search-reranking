@@ -41,7 +41,7 @@ python inference.py
 
 Training uses **`SparkXGBClassifier`** on workers (`barrier_mode=True`, `num_workers` from data size). Data stays in Spark — no full-table **`toPandas()`** on train.
 
-Model artifact: **`artifacts/xgb_spark_pipeline/`** (Spark ML Pipeline: encoders + XGBoost). Scores: **`cas_search_reranking_lgbm_inferences`** Delta table (keys, **`game_position`**, **`final_similarity_score`**, **`click_proba`**). Eval SQL: **`src/data/inference_analysis.sql`**.
+Model artifact: **`artifacts/xgb_spark_pipeline/`** (Spark ML Pipeline: encoders + XGBoost). Scores: **`cas_search_reranking_lgbm_inferences`** Delta table (**append** per run; **`inserted_ts`** = write time). Eval SQL: **`src/data/inference_analysis.sql`** (filter latest run with `inserted_ts` if needed).
 
 Optional: tune **`train_sample_fraction`** / **`train_max_rows`** in `constants.py` to shrink the Spark training set.
 
