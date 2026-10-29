@@ -114,8 +114,8 @@ def train_spark(*, model_path: Path, feature_list_path: Path, random_state: int 
         if isinstance(val_sdf.schema[col].dataType, BooleanType):
             val_sdf = val_sdf.withColumn(col, F.col(col).cast("double"))
 
-    train_sdf = train_sdf.withColumn(XGB_VALIDATION_INDICATOR_COL, F.lit(0))
-    val_sdf = val_sdf.withColumn(XGB_VALIDATION_INDICATOR_COL, F.lit(1))
+    train_sdf = train_sdf.withColumn(XGB_VALIDATION_INDICATOR_COL, F.lit(False))
+    val_sdf = val_sdf.withColumn(XGB_VALIDATION_INDICATOR_COL, F.lit(True))
     fit_sdf = train_sdf.unionByName(val_sdf)
 
     num_workers = _resolve_xgb_num_workers(fit_sdf, requested=xgb_num_workers)
