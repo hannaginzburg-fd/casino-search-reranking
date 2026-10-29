@@ -1,11 +1,11 @@
 -- Holdout inference eval (run after inference.py).
--- Source: sandbox.group_data_science.cas_search_reranking_lgbm_inferences (append-only; use latest inserted_ts)
+-- Source: sandbox.group_data_science.cas_search_reranking_xgboost_inferences (append-only; use latest inserted_ts)
 
 CREATE OR REPLACE TEMP VIEW inference_latest AS
 SELECT *
-FROM sandbox.group_data_science.cas_search_reranking_lgbm_inferences
+FROM sandbox.group_data_science.cas_search_reranking_xgboost_inferences
 WHERE inserted_ts = (
-  SELECT max(inserted_ts) FROM sandbox.group_data_science.cas_search_reranking_lgbm_inferences
+  SELECT max(inserted_ts) FROM sandbox.group_data_science.cas_search_reranking_xgboost_inferences
 );
 
 CREATE OR REPLACE TEMP TABLE search_inferences AS

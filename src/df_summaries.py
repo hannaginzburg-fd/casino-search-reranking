@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 import matplotlib.pyplot as plt
@@ -66,11 +67,11 @@ def _recency_bucket_col(col_name: str = "recency"):
     c = F.col(col_name)
     return (
         F.when(c.isNull(), F.lit("null"))
-        .when(c <= 7, F.lit("0-7d"))
-        .when(c <= 30, F.lit("8-30d"))
-        .when(c <= 90, F.lit("31-90d"))
-        .when(c <= 365, F.lit("91-365d"))
-        .otherwise(F.lit("366d+"))
+        .when(c <= 7, F.lit("0-7"))
+        .when(c <= 30, F.lit("8-30"))
+        .when(c <= 90, F.lit("31-90"))
+        .when(c <= 365, F.lit("91-365"))
+        .otherwise(F.lit("366+"))
     )
 
 
@@ -84,6 +85,33 @@ def _rank_bucket_col(col_name: str):
         .when(c <= 500, F.lit("101-500"))
         .otherwise(F.lit("501+"))
     )
+
+
+def _pct_fmt(val) -> str:
+    return f"{float(val) * 100:.1f}%"
+
+
+def _dimension_sort_key(label) -> tuple:
+    """Numeric dimensions first (asc); bucket labels by leading number; null last."""
+    s = str(label).strip()
+    if s.lower() in ("null", "nan", "none"):
+        return (3, 0.0, s)
+    try:
+        return (0, float(s), "")
+    except ValueError:
+        pass
+    cleaned = s.lower().replace("d", "").strip()
+    match = re.match(r"^(\d+(?:\.\d+)?)", cleaned)
+    if match:
+        return (1, float(match.group(1)), s)
+    return (2, 0.0, s)
+
+
+def _order_chart_pdf(pdf: pd.DataFrame, x: str) -> pd.DataFrame:
+    if pdf.empty or x not in pdf.columns:
+        return pdf
+    order = pdf[x].map(_dimension_sort_key).tolist()
+    return pdf.iloc[sorted(range(len(pdf)), key=lambda i: order[i])].reset_index(drop=True)
 
 
 def _bucket_expr(source_col: str, bucket_kind: str | None):
@@ -127,14 +155,21 @@ def _weekly_metrics(sdf: DataFrame) -> pd.DataFrame:
 def _line_chart(pdf: pd.DataFrame, x: str, y: str, title: str, path: Path, y_fmt=None) -> None:
     if pdf.empty:
         return
+    pdf = _order_chart_pdf(pdf, x)
+    if y == CTR_LABEL and y_fmt is None:
+        y_fmt = _pct_fmt
     fig, ax = plt.subplots(figsize=(10, 4.5))
     xs = range(len(pdf))
-    ax.plot(xs, pdf[y].values, marker="o", linewidth=2)
+    y_vals = pdf[y].values
+    ax.plot(xs, y_vals, marker="o", linewidth=2)
     ax.set_xticks(list(xs))
     ax.set_xticklabels([str(v)[:10] for v in pdf[x].values], rotation=45, ha="right")
     ax.set_title(title)
-    ax.set_ylabel(y.replace("_", " "))
-    for i, val in enumerate(pdf[y].values):
+    y_label = "CTR (%)" if y == CTR_LABEL else y.replace("_", " ")
+    ax.set_ylabel(y_label)
+    if y == CTR_LABEL:
+        ax.yaxis.set_major_formatter(plt.FuncFormatter(lambda v, _pos: f"{v * 100:.1f}%"))
+    for i, val in enumerate(y_vals):
         label = y_fmt(val) if y_fmt else f"{val:.4f}" if isinstance(val, float) else str(val)
         ax.annotate(label, (i, val), textcoords="offset points", xytext=(0, 6), ha="center", fontsize=8)
     fig.tight_layout()
@@ -145,10 +180,16 @@ def _line_chart(pdf: pd.DataFrame, x: str, y: str, title: str, path: Path, y_fmt
 def _bar_chart(pdf: pd.DataFrame, x: str, y: str, title: str, path: Path, y_fmt=None) -> None:
     if pdf.empty:
         return
+    pdf = _order_chart_pdf(pdf, x)
+    if y == CTR_LABEL and y_fmt is None:
+        y_fmt = _pct_fmt
     fig, ax = plt.subplots(figsize=(max(8, min(16, len(pdf) * 0.35)), 4.5))
     bars = ax.bar(pdf[x].astype(str), pdf[y].values, color="steelblue")
     ax.set_title(title)
-    ax.set_ylabel(y.replace("_", " "))
+    y_label = "CTR (%)" if y == CTR_LABEL else y.replace("_", " ")
+    ax.set_ylabel(y_label)
+    if y == CTR_LABEL:
+        ax.yaxis.set_major_formatter(plt.FuncFormatter(lambda v, _pos: f"{v * 100:.1f}%"))
     ax.tick_params(axis="x", rotation=45, labelsize=8)
     for bar, val in zip(bars, pdf[y].values):
         label = y_fmt(val) if y_fmt else f"{val:.4f}" if isinstance(val, float) else str(val)
@@ -223,11 +264,10 @@ def _ctr_by_quant_bins(sdf: DataFrame, col: str, n_bins: int = 20) -> pd.DataFra
         .filter(F.col("_bin").isNotNull())
         .groupBy("_bin")
         .agg(F.avg(LABEL_COLUMN).alias(CTR_LABEL), F.count(F.lit(1)).alias("row_count"))
-        .orderBy("_bin")
         .toPandas()
         .rename(columns={"_bin": col})
     )
-    return pdf
+    return _order_chart_pdf(pdf, col)
 
 
 def _write_index(output_dir: Path, paths: list[Path]) -> None:
@@ -247,7 +287,7 @@ def run_training_summaries(sdf: DataFrame, *, output_dir: Path) -> None:
     print(f"share_df_summaries: writing charts to {output_dir}")
 
     weekly = _weekly_metrics(sdf)
-    for metric, fmt in ((UNIQUE_USERS, lambda v: f"{int(v):,}"), (CTR_LABEL, lambda v: f"{v:.4f}")):
+    for metric, fmt in ((UNIQUE_USERS, lambda v: f"{int(v):,}"), (CTR_LABEL, _pct_fmt)):
         fname = output_dir / f"weekly_{metric}.png"
         _line_chart(weekly, "week_start", metric, f"{metric} by calendar week (train)", fname, y_fmt=fmt)
         saved.append(fname)
@@ -258,9 +298,11 @@ def run_training_summaries(sdf: DataFrame, *, output_dir: Path) -> None:
             continue
         dim = _bucket_expr(source_col, bucket_kind).alias("dimension")
         cut = _agg_users_ctr(sdf.withColumn("dimension", dim), "dimension")
-        for metric, fmt in ((UNIQUE_USERS, lambda v: f"{int(v):,}"), (CTR_LABEL, lambda v: f"{v:.4f}")):
+        for metric, fmt in ((UNIQUE_USERS, lambda v: f"{int(v):,}"), (CTR_LABEL, _pct_fmt)):
             fname = output_dir / f"bar_{slug}_{metric}.png"
             title = f"{metric} by {slug} (train)"
+            if bucket_kind == "recency":
+                title = f"{metric} by {slug} (in # of days, train)"
             _bar_chart(cut, "dimension", metric, title, fname, y_fmt=fmt)
             saved.append(fname)
 
