@@ -8,7 +8,6 @@ import xgboost as xgb
 from pyspark.ml import Pipeline
 from pyspark.ml.evaluation import BinaryClassificationEvaluator
 from pyspark.ml.feature import StringIndexer, VectorAssembler
-from pyspark.ml.functions import vector_to_array
 from pyspark.sql.types import BooleanType, StringType
 from sklearn.metrics import roc_auc_score
 from xgboost.spark import SparkXGBClassifier
@@ -167,16 +166,16 @@ def train_spark(*, model_path: Path, feature_list_path: Path, random_state: int 
     model = pipeline.fit(fit_sdf)
     fit_sdf.unpersist()
 
+    model_path.parent.mkdir(parents=True, exist_ok=True)
+    model.write().overwrite().save(str(model_path))
+
     val_pred = model.transform(val_sdf)
-    val_pred = val_pred.withColumn("click_proba", vector_to_array(XGB_PROBABILITY_COL).getItem(1))
     val_auc = BinaryClassificationEvaluator(
         labelCol=LABEL_COLUMN,
-        probabilityCol="click_proba",
+        rawPredictionCol=XGB_PROBABILITY_COL,
         metricName="areaUnderROC",
     ).evaluate(val_pred)
 
-    model_path.parent.mkdir(parents=True, exist_ok=True)
-    model.write().overwrite().save(str(model_path))
     return {"val_auc": float(val_auc), "train_rows": train_rows, "val_rows": val_rows}
 
 
