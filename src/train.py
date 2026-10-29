@@ -23,7 +23,14 @@ from data.config import (
     share_df_summaries,
 )
 from df_summaries import run_training_summaries
-from data.constants import driver_model_dbfs_path, spark_xgb_training, xgb_barrier_mode, xgb_num_workers
+from data.constants import (
+    driver_model_dbfs_path,
+    spark_xgb_training,
+    xgb_barrier_mode,
+    xgb_early_stopping_rounds,
+    xgb_n_estimators,
+    xgb_num_workers,
+)
 from features import save_feature_columns, training_matrix
 from load_data import (
     load_train_df_table,
@@ -39,6 +46,7 @@ from spark_session import get_spark
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SUMMARY_OUTPUT_DIR = REPO_ROOT / "artifacts" / "training_summaries"
+XGB_VALIDATION_INDICATOR_COL = "_is_validation"
 
 
 def _spark_task_slots() -> int:
@@ -105,12 +113,20 @@ def train_spark(*, model_path: Path, feature_list_path: Path, random_state: int 
     for col in feature_cols:
         if isinstance(val_sdf.schema[col].dataType, BooleanType):
             val_sdf = val_sdf.withColumn(col, F.col(col).cast("double"))
-    num_workers = _resolve_xgb_num_workers(train_sdf, requested=xgb_num_workers)
-    train_sdf = train_sdf.repartition(num_workers)
+
+    train_sdf = train_sdf.withColumn(XGB_VALIDATION_INDICATOR_COL, F.lit(0))
+    val_sdf = val_sdf.withColumn(XGB_VALIDATION_INDICATOR_COL, F.lit(1))
+    fit_sdf = train_sdf.unionByName(val_sdf)
+
+    num_workers = _resolve_xgb_num_workers(fit_sdf, requested=xgb_num_workers)
+    fit_sdf = fit_sdf.repartition(num_workers)
+    train_rows = train_sdf.count()
+    val_rows = val_sdf.count()
     print(
-        f"SparkXGBClassifier num_workers={num_workers}, barrier_mode={xgb_barrier_mode} "
-        f"(train rows ~{train_sdf.count():,}, validation rows ~{val_sdf.count():,}) "
-        f"— requires single-user / assigned cluster"
+        f"SparkXGBClassifier num_workers={num_workers}, barrier_mode={xgb_barrier_mode}, "
+        f"n_estimators<={xgb_n_estimators}, early_stopping_rounds={xgb_early_stopping_rounds} "
+        f"(train rows ~{train_rows:,}, validation rows ~{val_rows:,}) "
+        f"— use on-demand executors; spot preemption aborts barrier training"
     )
 
     xgb_estimator = SparkXGBClassifier(
@@ -118,6 +134,7 @@ def train_spark(*, model_path: Path, feature_list_path: Path, random_state: int 
         label_col=LABEL_COLUMN,
         prediction_col=XGB_PREDICTION_COL,
         probability_col=XGB_PROBABILITY_COL,
+        validation_indicator_col=XGB_VALIDATION_INDICATOR_COL,
         num_workers=num_workers,
         force_repartition=True,
         use_gpu=False,
@@ -127,16 +144,16 @@ def train_spark(*, model_path: Path, feature_list_path: Path, random_state: int 
         verbosity=0,
         max_depth=8,
         learning_rate=0.05,
-        n_estimators=500,
+        n_estimators=xgb_n_estimators,
+        early_stopping_rounds=xgb_early_stopping_rounds,
         subsample=0.8,
         colsample_bytree=0.8,
     )
 
     pipeline = Pipeline(stages=prep_stages + [xgb_estimator])
-    train_sdf.cache()
-    train_rows = train_sdf.count()
-    model = pipeline.fit(train_sdf)
-    train_sdf.unpersist()
+    fit_sdf.cache()
+    model = pipeline.fit(fit_sdf)
+    fit_sdf.unpersist()
 
     val_pred = model.transform(val_sdf)
     val_auc = BinaryClassificationEvaluator(
@@ -147,7 +164,7 @@ def train_spark(*, model_path: Path, feature_list_path: Path, random_state: int 
 
     model_path.parent.mkdir(parents=True, exist_ok=True)
     model.write().overwrite().save(str(model_path))
-    return {"val_auc": float(val_auc), "train_rows": train_rows, "val_rows": val_sdf.count()}
+    return {"val_auc": float(val_auc), "train_rows": train_rows, "val_rows": val_rows}
 
 
 def train_driver(*, model_path: Path, feature_list_path: Path, random_state: int = 42) -> dict[str, float]:
@@ -170,12 +187,13 @@ def train_driver(*, model_path: Path, feature_list_path: Path, random_state: int
         objective="binary:logistic",
         max_depth=8,
         learning_rate=0.05,
-        n_estimators=500,
+        n_estimators=xgb_n_estimators,
         subsample=0.8,
         colsample_bytree=0.8,
         random_state=random_state,
         enable_categorical=True,
         tree_method="hist",
+        early_stopping_rounds=xgb_early_stopping_rounds,
     )
     model.fit(X_train, y_train, eval_set=[(X_val, y_val)], verbose=False)
     val_auc = roc_auc_score(y_val, model.predict_proba(X_val)[:, 1])

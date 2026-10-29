@@ -20,6 +20,8 @@ driver_model_dbfs_path = "/dbfs/FileStore/cas_search_reranking/xgb_model.json"
 xgb_num_workers = None
 # True needs multi-executor cluster with num_workers matching slots; if barrier fails, try False or driver path
 xgb_barrier_mode = True
+xgb_n_estimators = 500
+xgb_early_stopping_rounds = 30  # uses temporal validation slice; stops early to shorten barrier job (spot-safe)
 
 schema = "sandbox.group_data_science"
 

@@ -51,4 +51,12 @@ Optional: tune **`train_sample_fraction`** / **`train_max_rows`** in `constants.
 
 **Single-user / assigned cluster (full data):** **`spark_xgb_training = True`**. **`xgb_num_workers`** defaults to auto-cap (≤ executor cores × instances). **`xgb_barrier_mode = True`** requires that many healthy executors for the whole job.
 
-**`Could not recover from a failed barrier ResultStage`:** usually **`num_workers`** > live executor slots, an executor OOM’d during XGB, or **shared** access mode. Try: set **`xgb_num_workers`** explicitly to executor count (e.g. **`4`**), **`xgb_barrier_mode = False`**, or **`spark_xgb_training = False`** (driver sample). Expand the **Spark UI → failed stage → stderr** for the root error. Turn **`share_df_summaries`** off while debugging train.
+**Barrier / `collectAndServe` failures:** open **Spark UI → failed stage** for the real cause.
+
+| Root cause | What to do |
+|------------|------------|
+| **`spot instance preemption`** (your log: `ExecutorLostFailure … spot instance kill`) | Barrier XGB **cannot survive** losing an executor mid-job. Use a **job cluster with on-demand workers only** (disable spot / “use spot instances”), or **`spark_xgb_training = False`** on the driver. |
+| **`num_workers`** too high | Set **`xgb_num_workers`** to executor cores × instances, or leave **`None`** for auto-cap. |
+| **Shared** access mode | **`spark_xgb_training = False`**. |
+
+**`xgb_early_stopping_rounds`** (default 30) fits on train + temporal validation and often stops **before** 500 trees—less time exposed to spot kills. Still use on-demand for long Spark XGB runs.
