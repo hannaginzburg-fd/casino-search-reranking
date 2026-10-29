@@ -5,7 +5,7 @@ from data.constants import *  # noqa: F403
 LABEL_COLUMN = "label"
 
 # Logged slot + baseline search score — same policy for train and serve (see below).
-SCORE_OR_RANK_LEAKAGE_COLS = ["game_position", "final_similarity_score"]
+SCORE_OR_RANK_LEAKAGE_COLS = ["game_position"]
 
 # When True, neither column is a model feature; both stay on the inference Delta for eval.
 EXCLUDE_SCORE_OR_RANK_LEAKAGE_FROM_TRAINING = False
