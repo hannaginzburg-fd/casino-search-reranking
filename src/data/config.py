@@ -4,6 +4,9 @@ from data.constants import *  # noqa: F403
 
 LABEL_COLUMN = "label"
 
+# Before model fit: write EDA charts under artifacts/training_summaries/ (Spark aggregations; full train slice).
+share_df_summaries = True
+
 # Logged slot + baseline search score — same policy for train and serve (see below).
 SCORE_OR_RANK_LEAKAGE_COLS = ["game_position"]
 

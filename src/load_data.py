@@ -1,10 +1,10 @@
 from __future__ import annotations
 
-from datetime import timedelta
+from datetime import date, timedelta
 from pathlib import Path
 
 import pandas as pd
-from pyspark.sql import functions as F
+from pyspark.sql import DataFrame, functions as F
 
 from data.config import EXCLUDE_FROM_TRAINING
 from data.constants import (
@@ -18,6 +18,7 @@ from data.constants import (
     train_max_rows,
     train_sample_fraction,
     training_lookback_window,
+    validation_days,
 )
 from spark_session import get_spark
 
@@ -26,6 +27,57 @@ SELECT *
 FROM base_features
 WHERE final_similarity_score IS NOT NULL
 """
+
+
+def _split_boundaries(max_event_date: date) -> tuple[date, date]:
+    """Return (validation_start, holdout_start) for temporal train | validation | holdout."""
+    holdout_start = max_event_date - timedelta(days=holdout_period - 1)
+    validation_start = holdout_start - timedelta(days=validation_days)
+    return validation_start, holdout_start
+
+
+def _max_event_date(full: DataFrame) -> date:
+    return full.agg(F.max("event_date")).first()[0]
+
+
+def _log_temporal_split(
+    *,
+    max_event_date: date,
+    train: DataFrame,
+    validation: DataFrame,
+    holdout: DataFrame | None = None,
+) -> None:
+    validation_start, holdout_start = _split_boundaries(max_event_date)
+    train_n = train.count()
+    val_n = validation.count()
+    msg = (
+        f"Temporal split (max event_date={max_event_date}): "
+        f"train event_date < {validation_start} ({train_n:,} rows); "
+        f"validation [{validation_start}, {holdout_start}) ({val_n:,} rows); "
+        f"holdout event_date >= {holdout_start}"
+    )
+    if holdout is not None:
+        msg += f" ({holdout.count():,} rows)"
+    print(msg)
+
+
+def _feature_columns(full: DataFrame) -> list[str]:
+    return [c for c in full.columns if c not in EXCLUDE_FROM_TRAINING]
+
+
+def _train_frame(full: DataFrame, validation_start: date) -> DataFrame:
+    train = full.filter(F.col("event_date") < F.lit(validation_start)).select(_feature_columns(full))
+    if train_sample_fraction < 1.0:
+        train = train.sample(withReplacement=False, fraction=train_sample_fraction, seed=42)
+    if train_max_rows is not None:
+        train = train.orderBy(F.rand(42)).limit(int(train_max_rows))
+    return train
+
+
+def _validation_frame(full: DataFrame, validation_start: date, holdout_start: date) -> DataFrame:
+    return full.filter(
+        (F.col("event_date") >= F.lit(validation_start)) & (F.col("event_date") < F.lit(holdout_start))
+    ).select(_feature_columns(full))
 
 
 def run_sql_script(sql_path: str | Path) -> None:
@@ -52,28 +104,42 @@ def save_full_df() -> None:
     )
 
 
-def _filtered_train_spark():
+def _temporal_train_validation(full: DataFrame) -> tuple[date, DataFrame, DataFrame]:
+    max_date = _max_event_date(full)
+    validation_start, holdout_start = _split_boundaries(max_date)
+    train = _train_frame(full, validation_start)
+    validation = _validation_frame(full, validation_start, holdout_start)
+    return max_date, train, validation
+
+
+def load_train_summary_spark_df() -> DataFrame:
+    """Full temporal train slice (no feature-column drop, no driver sampling) for EDA."""
     full = get_spark().table(f"{schema}.{full_df_table}")
-    max_date = full.agg(F.max("event_date")).first()[0]
-    holdout_start = max_date - timedelta(days=holdout_period - 1)
-    train = full.filter(F.col("event_date") < F.lit(holdout_start))
-    columns = [c for c in train.columns if c not in EXCLUDE_FROM_TRAINING]
-    train = train.select(columns)
-    if train_sample_fraction < 1.0:
-        train = train.sample(withReplacement=False, fraction=train_sample_fraction, seed=42)
-    if train_max_rows is not None:
-        train = train.orderBy(F.rand(42)).limit(int(train_max_rows))
-    return train
+    max_date = _max_event_date(full)
+    validation_start, _ = _split_boundaries(max_date)
+    cols = [c for c in full.columns if c != "inserted_ts"]
+    return full.filter(F.col("event_date") < F.lit(validation_start)).select(cols)
 
 
-def load_train_spark_df():
-    train = _filtered_train_spark()
+def load_train_spark_df() -> DataFrame:
+    full = get_spark().table(f"{schema}.{full_df_table}")
+    max_date, train, validation = _temporal_train_validation(full)
+    _log_temporal_split(max_event_date=max_date, train=train, validation=validation)
     print(f"Training rows (Spark): {train.count():,}")
     return train
 
 
+def load_validation_spark_df() -> DataFrame:
+    full = get_spark().table(f"{schema}.{full_df_table}")
+    _, train, validation = _temporal_train_validation(full)
+    print(f"Validation rows (Spark): {validation.count():,}")
+    return validation
+
+
 def load_train_df_table() -> pd.DataFrame:
-    train = _filtered_train_spark()
+    full = get_spark().table(f"{schema}.{full_df_table}")
+    max_date, train, validation = _temporal_train_validation(full)
+    _log_temporal_split(max_event_date=max_date, train=train, validation=validation)
     row_count = train.count()
     print(
         f"Collecting {row_count:,} training rows to driver "
@@ -82,11 +148,20 @@ def load_train_df_table() -> pd.DataFrame:
     return train.toPandas()
 
 
-def load_holdout_spark_df():
+def load_validation_df_table() -> pd.DataFrame:
     full = get_spark().table(f"{schema}.{full_df_table}")
-    max_date = full.agg(F.max("event_date")).first()[0]
-    holdout_start = max_date - timedelta(days=holdout_period - 1)
+    _, _, validation = _temporal_train_validation(full)
+    row_count = validation.count()
+    print(f"Collecting {row_count:,} validation rows to driver")
+    return validation.toPandas()
+
+
+def load_holdout_spark_df() -> DataFrame:
+    full = get_spark().table(f"{schema}.{full_df_table}")
+    max_date, train, validation = _temporal_train_validation(full)
+    _, holdout_start = _split_boundaries(max_date)
     holdout = full.filter(F.col("event_date") >= F.lit(holdout_start))
+    _log_temporal_split(max_event_date=max_date, train=train, validation=validation, holdout=holdout)
     columns = [c for c in holdout.columns if c != "inserted_ts"]
     return holdout.select(columns)
 
@@ -95,12 +170,23 @@ def load_holdout_df_table() -> pd.DataFrame:
     return load_holdout_spark_df().toPandas()
 
 
-def save_train_spark_df(train_df) -> None:
+def save_train_spark_df(train_df: DataFrame) -> None:
     (
         train_df.withColumn("inserted_ts", F.current_timestamp())
         .write.format("delta")
         .mode("overwrite")
         .saveAsTable(f"{schema}.{train_df_table}")
+    )
+
+
+def save_validation_spark_df(validation_df: DataFrame) -> None:
+    from data.constants import validation_df_table
+
+    (
+        validation_df.withColumn("inserted_ts", F.current_timestamp())
+        .write.format("delta")
+        .mode("overwrite")
+        .saveAsTable(f"{schema}.{validation_df_table}")
     )
 
 

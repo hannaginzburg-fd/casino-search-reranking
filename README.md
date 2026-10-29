@@ -22,8 +22,9 @@ notebooks/inference.ipynb
 | Stage | Behavior |
 |-------|----------|
 | **`full_df`** | All columns from `base_features` where `final_similarity_score IS NOT NULL` |
-| **Training** | Last **`holdout_period`** days held out in Spark; target **`label`** |
-| **Inference** | Holdout slice; **`SCORE_OR_RANK_LEAKAGE_COLS`** nulled on scoring copy only (logged values kept in Delta) |
+| **Training** | `event_date` before validation window; optional **`share_df_summaries`** EDA → `artifacts/training_summaries/` |
+| **Validation** | **`validation_days`** immediately before holdout — **`cas_search_reranking_validation_df`** |
+| **Inference** | Last **`holdout_period`** days only; **`SCORE_OR_RANK_LEAKAGE_COLS`** nulled on scoring copy |
 
 ## Pipeline (run in order)
 
