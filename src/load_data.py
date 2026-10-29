@@ -133,6 +133,48 @@ def _temporal_train_validation(full: DataFrame) -> tuple[date, DataFrame, DataFr
     return max_date, train, validation
 
 
+USER_ID_COLUMN = "fanduel_user_id"
+
+
+def _format_slice_line(name: str, sdf: DataFrame) -> str:
+    aggs = [
+        F.min("event_date").alias("min_d"),
+        F.max("event_date").alias("max_d"),
+        F.count(F.lit(1)).alias("n"),
+    ]
+    if USER_ID_COLUMN in sdf.columns:
+        aggs.append(F.countDistinct(USER_ID_COLUMN).alias("n_users"))
+    row = sdf.agg(*aggs).first()
+    min_d, max_d, n = row["min_d"], row["max_d"], int(row["n"])
+    if n == 0 or min_d is None:
+        return f"  {name}: (empty)"
+    if USER_ID_COLUMN in sdf.columns:
+        n_users = int(row["n_users"])
+        return f"  {name}: {min_d} .. {max_d} ({n:,} rows, {n_users:,} distinct users)"
+    return f"  {name}: {min_d} .. {max_d} ({n:,} rows)"
+
+
+def print_temporal_split_overview() -> None:
+    """Date ranges for train / validation / holdout slices (from full_df, before driver subsampling)."""
+    full = get_spark().table(f"{schema}.{full_df_table}")
+    max_date = _max_event_date(full)
+    validation_start, holdout_start = _split_boundaries(max_date)
+    train_slice = full.filter(F.col("event_date") < F.lit(validation_start))
+    val_slice = full.filter(
+        (F.col("event_date") >= F.lit(validation_start)) & (F.col("event_date") < F.lit(holdout_start))
+    )
+    holdout_slice = full.filter(F.col("event_date") >= F.lit(holdout_start))
+    print(f"Temporal splits (max event_date in full_df={max_date}):")
+    print(_format_slice_line("train_df", train_slice))
+    print(_format_slice_line("validation_df", val_slice))
+    print(_format_slice_line("holdout", holdout_slice))
+    if train_sample_fraction < 1.0 or train_max_rows is not None:
+        print(
+            "  Note: driver/Spark train_df written at fit time may use "
+            f"train_sample_fraction={train_sample_fraction}, train_max_rows={train_max_rows}"
+        )
+
+
 def load_train_summary_spark_df() -> DataFrame:
     """Full temporal train slice (no feature-column drop, no driver sampling) for EDA."""
     full = get_spark().table(f"{schema}.{full_df_table}")

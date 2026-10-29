@@ -90,6 +90,7 @@ INFERENCE_DELTA_CASTS = {
 DEFAULT_SPARK_MODEL_PATH = "artifacts/xgb_spark_pipeline"
 DEFAULT_DRIVER_MODEL_PATH = "artifacts/xgb_model.json"
 DEFAULT_FEATURE_LIST_PATH = "artifacts/feature_columns.json"
+DEFAULT_TRAINING_LOSS_PLOT_PATH = "artifacts/training_logloss.png"
 
 XGB_PREDICTION_COL = "click_pred"
 XGB_PROBABILITY_COL = "click_proba_vector"

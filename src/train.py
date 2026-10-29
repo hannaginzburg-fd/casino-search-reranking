@@ -4,6 +4,7 @@ import argparse
 import shutil
 from pathlib import Path
 
+import matplotlib.pyplot as plt
 import xgboost as xgb
 from pyspark.ml import Pipeline
 from pyspark.ml.evaluation import BinaryClassificationEvaluator
@@ -16,9 +17,14 @@ from data.config import (
     DEFAULT_DRIVER_MODEL_PATH,
     DEFAULT_FEATURE_LIST_PATH,
     DEFAULT_SPARK_MODEL_PATH,
+    DEFAULT_TRAINING_LOSS_PLOT_PATH,
+    EXCLUDE_SCORE_OR_RANK_LEAKAGE_FROM_TRAINING,
+    INFERENCE_IMPUTE_LEAKAGE_COLS,
+    INFERENCE_NULL_COLUMNS,
     INVERSE_PROPENSITY_WEIGHTING,
     IPW_POSITION_COLUMN,
     LABEL_COLUMN,
+    SCORE_OR_RANK_LEAKAGE_COLS,
     XGB_PREDICTION_COL,
     XGB_PROBABILITY_COL,
     XGB_VALIDATION_INDICATOR_COL,
@@ -42,12 +48,14 @@ from features import (
     training_feature_columns,
     training_matrix,
 )
+from inference_leakage import compute_leakage_imputation_values
 from load_data import (
     load_train_df_table,
     load_train_spark_df,
     load_train_summary_spark_df,
     load_validation_df_table,
     load_validation_spark_df,
+    print_temporal_split_overview,
     save_train_df,
     save_train_spark_df,
     save_validation_spark_df,
@@ -61,6 +69,126 @@ from spark_xgb_prep import (
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SUMMARY_OUTPUT_DIR = REPO_ROOT / "artifacts" / "training_summaries"
+LOSS_PLOT_PATH = REPO_ROOT / DEFAULT_TRAINING_LOSS_PLOT_PATH
+
+
+def _pick_logloss_metric(metrics: dict) -> tuple[str, list[float]] | None:
+    for name, values in metrics.items():
+        if values and "logloss" in name.lower():
+            return name, [float(v) for v in values]
+    if metrics:
+        name, values = next(iter(metrics.items()))
+        if values:
+            return name, [float(v) for v in values]
+    return None
+
+
+def _logloss_series_from_spark_xgb_stage(xgb_stage) -> dict[str, list[float]]:
+    series: dict[str, list[float]] = {}
+    summary = getattr(xgb_stage, "training_summary", None)
+    if summary is not None:
+        picked = _pick_logloss_metric(summary.validation_objective_history or {})
+        if picked:
+            metric, values = picked
+            series[f"validation ({metric})"] = values
+        picked = _pick_logloss_metric(summary.train_objective_history or {})
+        if picked:
+            metric, values = picked
+            series[f"train ({metric})"] = values
+    sklearn_model = getattr(xgb_stage, "_xgb_sklearn_model", None)
+    if sklearn_model is not None and hasattr(sklearn_model, "evals_result"):
+        evals = sklearn_model.evals_result()
+        if callable(evals):
+            evals = evals()
+        if isinstance(evals, dict):
+            for dataset, metrics in evals.items():
+                picked = _pick_logloss_metric(metrics if isinstance(metrics, dict) else {})
+                if picked:
+                    metric, values = picked
+                    series.setdefault(f"{dataset} ({metric})", values)
+    return series
+
+
+def _logloss_series_from_driver_model(model: xgb.XGBClassifier) -> dict[str, list[float]]:
+    evals = model.evals_result()
+    series: dict[str, list[float]] = {}
+    for dataset, metrics in evals.items():
+        picked = _pick_logloss_metric(metrics)
+        if picked:
+            metric, values = picked
+            series[f"{dataset} ({metric})"] = values
+    return series
+
+
+def _display_figure(fig) -> None:
+    try:
+        from IPython import get_ipython
+        from IPython.display import display
+
+        if get_ipython() is not None:
+            display(fig)
+            return
+    except ImportError:
+        pass
+    plt.show()
+
+
+def _save_logloss_plot(series: dict[str, list[float]], output_path: Path) -> bool:
+    if not series:
+        return False
+    fig, ax = plt.subplots(figsize=(8, 4))
+    for label, values in series.items():
+        if not values:
+            continue
+        rounds = list(range(1, len(values) + 1))
+        ax.plot(rounds, values, label=label, linewidth=1.5)
+    ax.set_xlabel("Boosting round")
+    ax.set_ylabel("Log loss")
+    ax.set_title("Training log loss by round")
+    ax.legend(loc="best")
+    ax.grid(True, alpha=0.3)
+    fig.tight_layout()
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(output_path, dpi=120)
+    _display_figure(fig)
+    plt.close(fig)
+    return True
+
+
+def print_position_bias_strategy() -> None:
+    if INVERSE_PROPENSITY_WEIGHTING:
+        print(
+            "Position bias strategy: IPW (inverse propensity weighting on train; "
+            f"{IPW_POSITION_COLUMN!r} excluded from model features)"
+        )
+        return
+    if EXCLUDE_SCORE_OR_RANK_LEAKAGE_FROM_TRAINING:
+        print(
+            "Position bias strategy: leakage columns excluded from training features "
+            f"({SCORE_OR_RANK_LEAKAGE_COLS}); no inference null/impute in this mode"
+        )
+        return
+    if INFERENCE_IMPUTE_LEAKAGE_COLS:
+        print("Position bias strategy: mean/mode imputation on leakage columns at inference")
+        train_slice = load_train_summary_spark_df()
+        feature_cols = training_feature_columns(list(train_slice.columns))
+        imputation = compute_leakage_imputation_values(train_slice, feature_cols)
+        for col in INFERENCE_NULL_COLUMNS:
+            if col not in feature_cols:
+                continue
+            value = imputation.get(col)
+            print(f"  {col} imputation (temporal train slice, same rule as inference batch): {value!r}")
+        return
+    print("Position bias strategy: nullify leakage columns on scoring copy at inference")
+    for col in INFERENCE_NULL_COLUMNS:
+        print(f"  {col} -> null on model input (original logged in holdout / Delta output)")
+
+
+def print_training_run_header() -> None:
+    print("=== Training run ===")
+    print_temporal_split_overview()
+    print_position_bias_strategy()
+    print("====================")
 
 
 def _spark_task_slots() -> int:
@@ -198,6 +326,13 @@ def train_spark(*, model_path: Path, feature_list_path: Path, random_state: int 
         metricName="areaUnderROC",
     ).evaluate(val_pred)
 
+    xgb_stage = model.stages[-1]
+    loss_series = _logloss_series_from_spark_xgb_stage(xgb_stage)
+    if _save_logloss_plot(loss_series, LOSS_PLOT_PATH):
+        print(f"Saved and displayed training log-loss curve at {LOSS_PLOT_PATH}")
+    else:
+        print("No per-round log-loss history on Spark model; skipping loss plot")
+
     return {"val_auc": float(val_auc), "train_rows": train_rows, "val_rows": val_rows}
 
 
@@ -227,6 +362,7 @@ def train_driver(*, model_path: Path, feature_list_path: Path, random_state: int
 
     driver_xgb_kwargs: dict = {
         "objective": "binary:logistic",
+        "eval_metric": "logloss",
         "max_depth": 8,
         "learning_rate": 0.05,
         "n_estimators": xgb_n_estimators,
@@ -266,6 +402,11 @@ def train_driver(*, model_path: Path, feature_list_path: Path, random_state: int
         dbfs_path.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy(model_path, dbfs_path)
         print(f"Copied driver model to {driver_model_dbfs_path} for distributed inference")
+    loss_series = _logloss_series_from_driver_model(model)
+    if _save_logloss_plot(loss_series, LOSS_PLOT_PATH):
+        print(f"Saved and displayed training log-loss curve at {LOSS_PLOT_PATH}")
+    else:
+        print("No eval log-loss history on driver model; skipping loss plot")
     return {"val_auc": float(val_auc), "train_rows": len(X_train), "val_rows": len(X_val)}
 
 
@@ -279,6 +420,7 @@ def main() -> None:
 
     validate_pipeline_config()
     get_spark()
+    print_training_run_header()
     _maybe_share_df_summaries()
     if spark_xgb_training:
         model_path = args.model_path or (REPO_ROOT / DEFAULT_SPARK_MODEL_PATH)
