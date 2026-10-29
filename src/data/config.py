@@ -13,11 +13,23 @@ EXCLUDE_FROM_TRAINING = [
     "search_keyword",
     "base_similarity_score",
     "inserted_ts",
-    "game_position"
+    #"game_position"
 ]
 
-# Not available at serving time — set to null (or omitted) at inference.
+# Model inputs only — nulled on a scoring copy, not on persisted inference rows.
 INFERENCE_NULL_COLUMNS = ["game_position"]
+
+# Slim Delta table for eval / SQL analysis (full feature row lives in full_df holdout).
+INFERENCE_OUTPUT_COLUMNS = [
+    "fanduel_user_id",
+    "session_id",
+    "game_id",
+    "event_date",
+    "search_keyword",
+    "game_position",
+    "final_similarity_score",
+    "label",
+]
 
 DEFAULT_SPARK_MODEL_PATH = "artifacts/xgb_spark_pipeline"
 DEFAULT_DRIVER_MODEL_PATH = "artifacts/xgb_model.json"
