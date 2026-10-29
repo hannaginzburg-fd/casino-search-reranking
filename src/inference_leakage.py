@@ -5,7 +5,7 @@ from __future__ import annotations
 from pyspark.sql import Column, DataFrame, functions as F
 from pyspark.sql.types import BooleanType, NumericType, StringType
 
-from data.config import INFERENCE_IMPUTE_LEAKAGE_COLS, INFERENCE_NULL_COLUMNS
+from data.config import INFERENCE_IMPUTE_LEAKAGE_COLS, INFERENCE_NULL_COLUMNS, INVERSE_PROPENSITY_WEIGHTING
 
 
 def _leakage_cols_for_model(feature_cols: list[str], sdf: DataFrame) -> list[str]:
@@ -57,6 +57,8 @@ def apply_leakage_fill_for_scoring(
     imputation_values: dict[str, object] | None = None,
 ) -> DataFrame:
     """Mutate leakage feature columns on the scoring copy only (null or mean/mode imputation)."""
+    if INVERSE_PROPENSITY_WEIGHTING:
+        return sdf
     cols = _leakage_cols_for_model(feature_cols, sdf)
     if not cols:
         return sdf

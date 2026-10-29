@@ -12,8 +12,8 @@ from data.config import (
     DEFAULT_FEATURE_LIST_PATH,
     DEFAULT_SPARK_MODEL_PATH,
     INFERENCE_DELTA_CASTS,
-    INFERENCE_IMPUTE_LEAKAGE_COLS,
     INFERENCE_OUTPUT_COLUMNS,
+    INVERSE_PROPENSITY_WEIGHTING,
     XGB_PROBABILITY_COL,
 )
 from data.constants import driver_model_dbfs_path, inferences_table, schema, spark_xgb_training
@@ -39,9 +39,12 @@ def _select_inference_output(scored, output_cols: list[str]):
 
 
 def _prepare_model_input(holdout, feature_cols: list[str]):
-    imputation = None
+    if INVERSE_PROPENSITY_WEIGHTING:
+        return cast_bools_to_double(holdout), None
+    imputation = compute_leakage_imputation_values(holdout, feature_cols)
+    from data.config import INFERENCE_IMPUTE_LEAKAGE_COLS
+
     if INFERENCE_IMPUTE_LEAKAGE_COLS:
-        imputation = compute_leakage_imputation_values(holdout, feature_cols)
         print(f"Inference leakage imputation (batch mean/mode): {imputation}")
     model_input = apply_leakage_fill_for_scoring(holdout, feature_cols, imputation_values=imputation)
     return cast_bools_to_double(model_input), imputation

@@ -4,17 +4,26 @@ from data.constants import *  # noqa: F403
 
 LABEL_COLUMN = "label"
 
+##### 3 Options for Handling Position Bias: #####
+# 1) Nullifying game position at inference time
+# 2) Mean-imputing game position at inference time
+# 3) IPW weighting - inversely weight each labeled row in *training*; inference unchanged
+
+# Position-bias IPW: drop position from features, row-weight train loss; no inference leakage handling.
+INVERSE_PROPENSITY_WEIGHTING = True
+IPW_POSITION_COLUMN = "game_position"
+
 # Before model fit: write EDA charts under artifacts/training_summaries/ (Spark aggregations; full train slice).
 share_df_summaries = True
 
 # Logged slot + baseline search score — same policy for train and serve (see below).
 SCORE_OR_RANK_LEAKAGE_COLS = ["game_position"]
 
-# When True, neither column is included as a model feature at all (vs. getting nullified in inference)
+# When True, neither column is included as a model feature at all (vs. leakage handling at inference).
 EXCLUDE_SCORE_OR_RANK_LEAKAGE_FROM_TRAINING = False
 
 # Kept in full_df for analysis / joins; dropped before model fit.
-EXCLUDE_FROM_TRAINING = [
+_EXCLUDE_BASE = [
     "fanduel_user_id",
     "session_id",
     "game_id",
@@ -22,15 +31,36 @@ EXCLUDE_FROM_TRAINING = [
     "search_keyword",
     "base_similarity_score",
     "inserted_ts",
-    *([] if not EXCLUDE_SCORE_OR_RANK_LEAKAGE_FROM_TRAINING else SCORE_OR_RANK_LEAKAGE_COLS),
+    sample_weight_col,
 ]
 
-# Leakage columns adjusted on the scoring copy only (persisted inference rows keep logged values).
+
+def training_feature_exclude() -> list[str]:
+    exclude = list(_EXCLUDE_BASE)
+    if EXCLUDE_SCORE_OR_RANK_LEAKAGE_FROM_TRAINING:
+        for col in SCORE_OR_RANK_LEAKAGE_COLS:
+            if col not in exclude:
+                exclude.append(col)
+    if INVERSE_PROPENSITY_WEIGHTING:
+        if IPW_POSITION_COLUMN not in exclude:
+            exclude.append(IPW_POSITION_COLUMN)
+    return exclude
+
+
+# Back-compat name used across loaders / features.
+EXCLUDE_FROM_TRAINING = training_feature_exclude()
+
+# Leakage columns adjusted on the scoring copy only (mutually exclusive with IPW).
 INFERENCE_NULL_COLUMNS = list(SCORE_OR_RANK_LEAKAGE_COLS)
 
-# True: replace leakage feature values with batch mean (numeric) / mode (categorical) at score time.
-# False: set those feature columns to null on the scoring copy.
-INFERENCE_IMPUTE_LEAKAGE_COLS = True
+# True: mean/mode imputation on scoring copy. Must be False when INVERSE_PROPENSITY_WEIGHTING is True.
+INFERENCE_IMPUTE_LEAKAGE_COLS = False
+
+if INVERSE_PROPENSITY_WEIGHTING and INFERENCE_IMPUTE_LEAKAGE_COLS:
+    raise ValueError(
+        "INVERSE_PROPENSITY_WEIGHTING and INFERENCE_IMPUTE_LEAKAGE_COLS cannot both be enabled "
+        "(IPW drops position from the model; inference uses no null/impute for leakage cols)."
+    )
 
 # Slim Delta table for eval / SQL analysis (full feature row lives in full_df holdout).
 INFERENCE_OUTPUT_COLUMNS = [

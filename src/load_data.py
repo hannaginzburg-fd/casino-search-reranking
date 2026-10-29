@@ -6,7 +6,14 @@ from pathlib import Path
 import pandas as pd
 from pyspark.sql import DataFrame, functions as F
 
-from data.config import EXCLUDE_FROM_TRAINING
+from data.config import (
+    EXCLUDE_FROM_TRAINING,
+    INVERSE_PROPENSITY_WEIGHTING,
+    IPW_POSITION_COLUMN,
+    LABEL_COLUMN,
+)
+from data.constants import sample_weight_col
+from ipw import add_inverse_propensity_weights
 from data.constants import (
     contest_history_lookback_days,
     full_df_start_date,
@@ -66,12 +73,23 @@ def _feature_columns(full: DataFrame) -> list[str]:
 
 
 def _train_frame(full: DataFrame, validation_start: date) -> DataFrame:
-    train = full.filter(F.col("event_date") < F.lit(validation_start)).select(_feature_columns(full))
+    cols = [c for c in full.columns if c != "inserted_ts"]
+    train = full.filter(F.col("event_date") < F.lit(validation_start)).select(cols)
     if train_sample_fraction < 1.0:
         train = train.sample(withReplacement=False, fraction=train_sample_fraction, seed=42)
     if train_max_rows is not None:
         train = train.orderBy(F.rand(42)).limit(int(train_max_rows))
-    return train
+    if INVERSE_PROPENSITY_WEIGHTING:
+        train = add_inverse_propensity_weights(
+            train,
+            position_col=IPW_POSITION_COLUMN,
+            weight_col=sample_weight_col,
+        )
+    feature_cols = _feature_columns(full)
+    out_cols = [*feature_cols, LABEL_COLUMN]
+    if INVERSE_PROPENSITY_WEIGHTING:
+        out_cols.append(sample_weight_col)
+    return train.select(*[c for c in out_cols if c in train.columns])
 
 
 def _validation_frame(full: DataFrame, validation_start: date, holdout_start: date) -> DataFrame:

@@ -16,12 +16,16 @@ from data.config import (
     DEFAULT_DRIVER_MODEL_PATH,
     DEFAULT_FEATURE_LIST_PATH,
     DEFAULT_SPARK_MODEL_PATH,
+    INVERSE_PROPENSITY_WEIGHTING,
+    IPW_POSITION_COLUMN,
     LABEL_COLUMN,
     XGB_PREDICTION_COL,
     XGB_PROBABILITY_COL,
     XGB_VALIDATION_INDICATOR_COL,
     share_df_summaries,
 )
+from data.constants import sample_weight_col
+from pyspark.sql import functions as F
 from df_summaries import run_training_summaries
 from data.constants import (
     driver_model_dbfs_path,
@@ -118,8 +122,15 @@ def train_spark(*, model_path: Path, feature_list_path: Path, random_state: int 
     train_sdf = cast_label_double(train_sdf)
     val_sdf = cast_label_double(val_sdf)
 
+    if INVERSE_PROPENSITY_WEIGHTING:
+        print(f"Inverse propensity weighting on train ({IPW_POSITION_COLUMN} marginal); validation unweighted")
+    elif sample_weight_col in train_sdf.columns:
+        train_sdf = train_sdf.drop(sample_weight_col)
+
     train_sdf = add_validation_indicator(train_sdf, is_validation=False)
     val_sdf = add_validation_indicator(val_sdf, is_validation=True)
+    if INVERSE_PROPENSITY_WEIGHTING:
+        val_sdf = val_sdf.withColumn(sample_weight_col, F.lit(1.0))
     fit_sdf = train_sdf.unionByName(val_sdf)
 
     num_workers = _resolve_xgb_num_workers(fit_sdf, requested=xgb_num_workers)
@@ -159,6 +170,8 @@ def train_spark(*, model_path: Path, feature_list_path: Path, random_state: int 
     }
     if scale_pos_weight is not None:
         xgb_kwargs["scale_pos_weight"] = scale_pos_weight
+    if INVERSE_PROPENSITY_WEIGHTING:
+        xgb_kwargs["weight_col"] = sample_weight_col
     xgb_estimator = SparkXGBClassifier(**xgb_kwargs)
 
     pipeline = Pipeline(stages=prep_stages + [xgb_estimator])
@@ -214,7 +227,19 @@ def train_driver(*, model_path: Path, feature_list_path: Path, random_state: int
             driver_xgb_kwargs["scale_pos_weight"] = neg / pos
             print(f"Driver XGB scale_pos_weight={driver_xgb_kwargs['scale_pos_weight']:.4f}")
     model = xgb.XGBClassifier(**driver_xgb_kwargs)
-    model.fit(X_train, y_train, eval_set=[(X_val, y_val)], verbose=False)
+    train_weight = None
+    if INVERSE_PROPENSITY_WEIGHTING:
+        if sample_weight_col not in train_pdf.columns:
+            raise ValueError(f"IPW enabled but {sample_weight_col!r} missing from train frame")
+        train_weight = train_pdf[sample_weight_col].astype(float).values
+        print(f"Inverse propensity weighting on train ({IPW_POSITION_COLUMN} marginal); validation unweighted")
+    model.fit(
+        X_train,
+        y_train,
+        sample_weight=train_weight,
+        eval_set=[(X_val, y_val)],
+        verbose=False,
+    )
     val_auc = roc_auc_score(y_val, model.predict_proba(X_val)[:, 1])
 
     model_path.parent.mkdir(parents=True, exist_ok=True)

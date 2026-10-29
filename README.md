@@ -24,7 +24,8 @@ notebooks/inference.ipynb
 | **`full_df`** | All columns from `base_features` where `final_similarity_score IS NOT NULL` |
 | **Training** | `event_date` before validation window; optional **`share_df_summaries`** EDA → `artifacts/training_summaries/` |
 | **Validation** | **`validation_days`** immediately before holdout — **`cas_search_reranking_validation_df`** |
-| **Inference** | Holdout slice; leakage features **mean/mode imputed** on scoring copy if **`INFERENCE_IMPUTE_LEAKAGE_COLS`** (else null); logged cols unchanged in Delta |
+| **Training (IPW)** | If **`INVERSE_PROPENSITY_WEIGHTING`**: drop **`game_position`** from features; train with **`sample_weight = 1/P(position)`** (clipped); mutually exclusive with inference null/impute |
+| **Inference** | Standard score (no IPW weights); with IPW, no null/impute on leakage cols; logged cols unchanged in Delta |
 
 ## Pipeline (run in order)
 

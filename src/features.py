@@ -9,6 +9,7 @@ from data.config import (
     EXCLUDE_FROM_TRAINING,
     INFERENCE_IMPUTE_LEAKAGE_COLS,
     INFERENCE_NULL_COLUMNS,
+    INVERSE_PROPENSITY_WEIGHTING,
     LABEL_COLUMN,
 )
 
@@ -32,6 +33,12 @@ def prepare_inference_features(
 ) -> pd.DataFrame:
     """Align columns to training schema; apply leakage null or mean/mode imputation on features."""
     X = full_df.copy()
+    if INVERSE_PROPENSITY_WEIGHTING:
+        missing = [c for c in feature_columns if c not in X.columns]
+        if missing:
+            raise ValueError(f"Inference frame missing training features: {missing}")
+        return X[feature_columns]
+
     for col in INFERENCE_NULL_COLUMNS:
         if col not in feature_columns or col not in X.columns:
             continue
