@@ -55,7 +55,7 @@ normed AS (
 ranked AS (
   SELECT
     *,
-    norm_final_score - norm_click_proba AS reranker_delta,
+    norm_final_score - norm_click_proba AS reranked_game_position_delta,
     ROW_NUMBER() OVER (
       PARTITION BY fanduel_user_id, session_id, search_keyword
       ORDER BY click_proba DESC
@@ -67,17 +67,17 @@ SELECT
   ABS(game_position - reranked_game_position) AS game_position_abs_delta
 FROM ranked;
 
--- reranker_delta distribution (0.1-wide buckets)
+-- reranked_game_position_delta distribution (0.05-wide buckets)
 SELECT
   CONCAT(
-    CAST(FLOOR(reranker_delta * 10) / 10.0 AS DECIMAL(4, 1)),
+    CAST(FLOOR(reranked_game_position_delta * 20) / 20.0 AS DECIMAL(4, 2)),
     '-',
-    CAST(FLOOR(reranker_delta * 10) / 10.0 + 0.1 AS DECIMAL(4, 1))
-  ) AS reranker_delta_bucket,
+    CAST(FLOOR(reranked_game_position_delta * 20) / 20.0 + 0.05 AS DECIMAL(4, 2))
+  ) AS reranked_game_position_delta_bucket,
   COUNT(*) AS row_count
 FROM inference_rerank_metrics
 GROUP BY 1
-ORDER BY MIN(reranker_delta);
+ORDER BY MIN(reranked_game_position_delta);
 
 -- ---------------------------------------------------------------------------
 -- Sanity check: max logged slot == max reranked slot per search context
@@ -108,22 +108,21 @@ FROM (
 );
 
 -- ---------------------------------------------------------------------------
--- Volume by reranked slot (integer positions; 50+ collapsed)
+-- Volume by reranked_game_position_delta (0.05-wide buckets; same as distribution above)
 -- ---------------------------------------------------------------------------
 SELECT
-  reranked_game_position_bucket,
+  reranked_game_position_delta_bucket,
   COUNT(*) AS game_count
 FROM (
   SELECT
-    CASE
-      WHEN reranked_game_position >= 50 THEN '50+'
-      ELSE CAST(reranked_game_position AS STRING)
-    END AS reranked_game_position_bucket,
-    CASE
-      WHEN reranked_game_position >= 50 THEN 999
-      ELSE reranked_game_position
-    END AS sort_key
+    CONCAT(
+      CAST(FLOOR(reranked_game_position_delta * 20) / 20.0 AS DECIMAL(4, 2)),
+      '-',
+      CAST(FLOOR(reranked_game_position_delta * 20) / 20.0 + 0.05 AS DECIMAL(4, 2))
+    ) AS reranked_game_position_delta_bucket,
+    FLOOR(reranked_game_position_delta * 20) AS sort_key
   FROM inference_rerank_metrics
+  WHERE reranked_game_position_delta IS NOT NULL
 ) t
-GROUP BY reranked_game_position_bucket, sort_key
+GROUP BY reranked_game_position_delta_bucket, sort_key
 ORDER BY sort_key;
