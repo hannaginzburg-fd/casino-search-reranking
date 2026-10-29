@@ -8,7 +8,7 @@ import xgboost as xgb
 from pyspark.ml import Pipeline
 from pyspark.ml.evaluation import BinaryClassificationEvaluator
 from pyspark.ml.feature import StringIndexer, VectorAssembler
-from pyspark.sql import functions as F
+from pyspark.ml.functions import vector_to_array
 from pyspark.sql.types import BooleanType, StringType
 from sklearn.metrics import roc_auc_score
 from xgboost.spark import SparkXGBClassifier
@@ -20,6 +20,7 @@ from data.config import (
     LABEL_COLUMN,
     XGB_PREDICTION_COL,
     XGB_PROBABILITY_COL,
+    XGB_VALIDATION_INDICATOR_COL,
     share_df_summaries,
 )
 from df_summaries import run_training_summaries
@@ -27,6 +28,7 @@ from data.constants import (
     driver_model_dbfs_path,
     spark_xgb_training,
     xgb_barrier_mode,
+    xgb_auto_scale_pos_weight,
     xgb_early_stopping_rounds,
     xgb_n_estimators,
     xgb_num_workers,
@@ -43,10 +45,15 @@ from load_data import (
     save_validation_spark_df,
 )
 from spark_session import get_spark
+from spark_xgb_prep import (
+    add_validation_indicator,
+    cast_bools_to_double,
+    cast_label_double,
+    estimate_scale_pos_weight,
+)
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SUMMARY_OUTPUT_DIR = REPO_ROOT / "artifacts" / "training_summaries"
-XGB_VALIDATION_INDICATOR_COL = "_is_validation"
 
 
 def _spark_task_slots() -> int:
@@ -85,9 +92,7 @@ def _maybe_share_df_summaries() -> None:
 
 
 def _prep_spark_features(sdf, feature_cols):
-    for col in feature_cols:
-        if isinstance(sdf.schema[col].dataType, BooleanType):
-            sdf = sdf.withColumn(col, F.col(col).cast("double"))
+    sdf = cast_bools_to_double(sdf)
     prep_stages = []
     vec_cols = []
     for col in feature_cols:
@@ -110,18 +115,22 @@ def train_spark(*, model_path: Path, feature_list_path: Path, random_state: int 
     save_validation_spark_df(val_sdf.select(*feature_cols, LABEL_COLUMN))
 
     train_sdf, prep_stages = _prep_spark_features(train_sdf, feature_cols)
-    for col in feature_cols:
-        if isinstance(val_sdf.schema[col].dataType, BooleanType):
-            val_sdf = val_sdf.withColumn(col, F.col(col).cast("double"))
+    val_sdf = cast_bools_to_double(val_sdf)
+    train_sdf = cast_label_double(train_sdf)
+    val_sdf = cast_label_double(val_sdf)
 
-    train_sdf = train_sdf.withColumn(XGB_VALIDATION_INDICATOR_COL, F.lit(False))
-    val_sdf = val_sdf.withColumn(XGB_VALIDATION_INDICATOR_COL, F.lit(True))
+    train_sdf = add_validation_indicator(train_sdf, is_validation=False)
+    val_sdf = add_validation_indicator(val_sdf, is_validation=True)
     fit_sdf = train_sdf.unionByName(val_sdf)
 
     num_workers = _resolve_xgb_num_workers(fit_sdf, requested=xgb_num_workers)
-    fit_sdf = fit_sdf.repartition(num_workers)
     train_rows = train_sdf.count()
     val_rows = val_sdf.count()
+    scale_pos_weight = None
+    if xgb_auto_scale_pos_weight:
+        scale_pos_weight = estimate_scale_pos_weight(train_sdf)
+        if scale_pos_weight is not None:
+            print(f"Spark XGB scale_pos_weight={scale_pos_weight:.4f} (neg/pos on train)")
     print(
         f"SparkXGBClassifier num_workers={num_workers}, barrier_mode={xgb_barrier_mode}, "
         f"n_estimators<={xgb_n_estimators}, early_stopping_rounds={xgb_early_stopping_rounds} "
@@ -129,26 +138,30 @@ def train_spark(*, model_path: Path, feature_list_path: Path, random_state: int 
         f"— use on-demand executors; spot preemption aborts barrier training"
     )
 
-    xgb_estimator = SparkXGBClassifier(
-        features_col="features",
-        label_col=LABEL_COLUMN,
-        prediction_col=XGB_PREDICTION_COL,
-        probability_col=XGB_PROBABILITY_COL,
-        validation_indicator_col=XGB_VALIDATION_INDICATOR_COL,
-        num_workers=num_workers,
-        force_repartition=True,
-        use_gpu=False,
-        barrier_mode=xgb_barrier_mode,
-        eval_metric="logloss",
-        random_state=random_state,
-        verbosity=0,
-        max_depth=8,
-        learning_rate=0.05,
-        n_estimators=xgb_n_estimators,
-        early_stopping_rounds=xgb_early_stopping_rounds,
-        subsample=0.8,
-        colsample_bytree=0.8,
-    )
+    xgb_kwargs: dict = {
+        "features_col": "features",
+        "label_col": LABEL_COLUMN,
+        "prediction_col": XGB_PREDICTION_COL,
+        "probability_col": XGB_PROBABILITY_COL,
+        "validation_indicator_col": XGB_VALIDATION_INDICATOR_COL,
+        "num_workers": num_workers,
+        "force_repartition": True,
+        "use_gpu": False,
+        "barrier_mode": xgb_barrier_mode,
+        "eval_metric": "logloss",
+        "objective": "binary:logistic",
+        "random_state": random_state,
+        "verbosity": 0,
+        "max_depth": 8,
+        "learning_rate": 0.05,
+        "n_estimators": xgb_n_estimators,
+        "early_stopping_rounds": xgb_early_stopping_rounds,
+        "subsample": 0.8,
+        "colsample_bytree": 0.8,
+    }
+    if scale_pos_weight is not None:
+        xgb_kwargs["scale_pos_weight"] = scale_pos_weight
+    xgb_estimator = SparkXGBClassifier(**xgb_kwargs)
 
     pipeline = Pipeline(stages=prep_stages + [xgb_estimator])
     fit_sdf.cache()
@@ -156,9 +169,10 @@ def train_spark(*, model_path: Path, feature_list_path: Path, random_state: int 
     fit_sdf.unpersist()
 
     val_pred = model.transform(val_sdf)
+    val_pred = val_pred.withColumn("click_proba", vector_to_array(XGB_PROBABILITY_COL).getItem(1))
     val_auc = BinaryClassificationEvaluator(
         labelCol=LABEL_COLUMN,
-        rawPredictionCol="rawPrediction",
+        probabilityCol="click_proba",
         metricName="areaUnderROC",
     ).evaluate(val_pred)
 
@@ -183,18 +197,25 @@ def train_driver(*, model_path: Path, feature_list_path: Path, random_state: int
             if frame[col].dtype == "object" or str(frame[col].dtype) == "string":
                 frame[col] = frame[col].astype("category")
 
-    model = xgb.XGBClassifier(
-        objective="binary:logistic",
-        max_depth=8,
-        learning_rate=0.05,
-        n_estimators=xgb_n_estimators,
-        subsample=0.8,
-        colsample_bytree=0.8,
-        random_state=random_state,
-        enable_categorical=True,
-        tree_method="hist",
-        early_stopping_rounds=xgb_early_stopping_rounds,
-    )
+    driver_xgb_kwargs: dict = {
+        "objective": "binary:logistic",
+        "max_depth": 8,
+        "learning_rate": 0.05,
+        "n_estimators": xgb_n_estimators,
+        "subsample": 0.8,
+        "colsample_bytree": 0.8,
+        "random_state": random_state,
+        "enable_categorical": True,
+        "tree_method": "hist",
+        "early_stopping_rounds": xgb_early_stopping_rounds,
+    }
+    if xgb_auto_scale_pos_weight:
+        pos = int(y_train.sum())
+        neg = len(y_train) - pos
+        if pos > 0 and neg > 0:
+            driver_xgb_kwargs["scale_pos_weight"] = neg / pos
+            print(f"Driver XGB scale_pos_weight={driver_xgb_kwargs['scale_pos_weight']:.4f}")
+    model = xgb.XGBClassifier(**driver_xgb_kwargs)
     model.fit(X_train, y_train, eval_set=[(X_val, y_val)], verbose=False)
     val_auc = roc_auc_score(y_val, model.predict_proba(X_val)[:, 1])
 

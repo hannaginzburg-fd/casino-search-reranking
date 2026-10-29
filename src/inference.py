@@ -7,7 +7,7 @@ import xgboost as xgb
 from pyspark.ml import PipelineModel
 from pyspark.ml.functions import vector_to_array
 from pyspark.sql import functions as F
-from pyspark.sql.types import BooleanType, DoubleType, StructField, StructType
+from pyspark.sql.types import DoubleType, StructField, StructType
 from data.config import (
     DEFAULT_DRIVER_MODEL_PATH,
     DEFAULT_FEATURE_LIST_PATH,
@@ -20,6 +20,7 @@ from data.config import (
 from data.constants import driver_model_dbfs_path, inferences_table, schema, spark_xgb_training
 from features import load_feature_columns, prepare_inference_features
 from load_data import load_holdout_spark_df, save_inferences_spark
+from spark_xgb_prep import cast_bools_to_double, ensure_inference_validation_column
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
@@ -30,14 +31,6 @@ def _null_columns_for_scoring(sdf, feature_cols: list[str]):
     for col in INFERENCE_NULL_COLUMNS:
         if col in feature_cols and col in out.columns:
             out = out.withColumn(col, F.lit(None).cast("double"))
-    return out
-
-
-def _cast_bools_to_double(sdf):
-    out = sdf
-    for col in out.columns:
-        if isinstance(out.schema[col].dataType, BooleanType):
-            out = out.withColumn(col, F.col(col).cast("double"))
     return out
 
 
@@ -56,7 +49,9 @@ def _select_inference_output(scored, output_cols: list[str]):
 def infer_holdout_spark(*, model_path: Path, feature_list_path: Path) -> None:
     holdout = load_holdout_spark_df().withColumn("__row_id", F.monotonically_increasing_id())
     feature_cols = load_feature_columns(feature_list_path)
-    model_input = _cast_bools_to_double(_null_columns_for_scoring(holdout, feature_cols))
+    model_input = ensure_inference_validation_column(
+        cast_bools_to_double(_null_columns_for_scoring(holdout, feature_cols))
+    )
 
     pipeline = PipelineModel.load(str(model_path))
     scored = pipeline.transform(model_input)
@@ -72,7 +67,7 @@ def infer_holdout_spark(*, model_path: Path, feature_list_path: Path) -> None:
 def infer_holdout_driver(*, model_path: Path, feature_list_path: Path) -> None:
     feature_cols = load_feature_columns(feature_list_path)
     holdout = load_holdout_spark_df().withColumn("__row_id", F.monotonically_increasing_id())
-    model_input = _cast_bools_to_double(_null_columns_for_scoring(holdout, feature_cols))
+    model_input = cast_bools_to_double(_null_columns_for_scoring(holdout, feature_cols))
 
     prob_schema = StructType(
         [

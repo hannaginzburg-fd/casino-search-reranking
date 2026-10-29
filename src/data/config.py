@@ -5,12 +5,12 @@ from data.constants import *  # noqa: F403
 LABEL_COLUMN = "label"
 
 # Before model fit: write EDA charts under artifacts/training_summaries/ (Spark aggregations; full train slice).
-share_df_summaries = False
+share_df_summaries = True
 
 # Logged slot + baseline search score — same policy for train and serve (see below).
 SCORE_OR_RANK_LEAKAGE_COLS = ["game_position"]
 
-# When True, neither column is a model feature; both stay on the inference Delta for eval.
+# When True, neither column is included as a model feature at all (vs. getting nullified in inference)
 EXCLUDE_SCORE_OR_RANK_LEAKAGE_FROM_TRAINING = False
 
 # Kept in full_df for analysis / joins; dropped before model fit.
@@ -54,3 +54,6 @@ DEFAULT_FEATURE_LIST_PATH = "artifacts/feature_columns.json"
 
 XGB_PREDICTION_COL = "click_pred"
 XGB_PROBABILITY_COL = "click_proba_vector"
+
+# SparkXGBClassifier early stopping (boolean: True = validation rows, False = train)
+XGB_VALIDATION_INDICATOR_COL = "_is_validation"

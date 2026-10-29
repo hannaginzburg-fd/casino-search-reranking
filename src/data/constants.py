@@ -22,6 +22,7 @@ xgb_num_workers = None
 xgb_barrier_mode = True
 xgb_n_estimators = 500
 xgb_early_stopping_rounds = 30  # uses temporal validation slice; stops early to shorten barrier job (spot-safe)
+xgb_auto_scale_pos_weight = True  # Spark/driver: weight negatives for imbalanced click labels
 
 schema = "sandbox.group_data_science"
 

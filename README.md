@@ -60,3 +60,15 @@ Optional: tune **`train_sample_fraction`** / **`train_max_rows`** in `constants.
 | **Shared** access mode | **`spark_xgb_training = False`**. |
 
 **`xgb_early_stopping_rounds`** (default 30) fits on train + temporal validation and often stops **before** 500 trees—less time exposed to spot kills. Still use on-demand for long Spark XGB runs.
+
+### Spark XGB checklist (train + inference)
+
+| Item | Notes |
+|------|--------|
+| **Cluster** | Single-user / assigned (not shared UC); **on-demand workers** for train; PyPI **`xgboost==3.1.1`** on both job clusters. |
+| **`num_workers`** | **`None`** = auto-cap to executor cores × instances; set explicitly if auto estimate is wrong on dynamic clusters. |
+| **Validation indicator** | **`_is_validation`**: **`boolean`** (`False` train / `True` val); inference adds **`False`**. |
+| **Label / bools** | **`label`** cast to **double**; booleans cast to **double** before the ML pipeline (matches XGB). |
+| **Artifact path** | Train writes **`artifacts/xgb_spark_pipeline/`** on the driver; inference cluster must read the same path (Repo Files / workspace git / DBFS copy). |
+| **Imbalance** | **`xgb_auto_scale_pos_weight`** sets **`scale_pos_weight`** from train click rate. |
+| **Memory** | ~31M train rows / **`num_workers`** ≈ millions of rows per XGB worker—size executors accordingly or reduce data / workers. |
