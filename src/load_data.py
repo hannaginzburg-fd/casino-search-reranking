@@ -195,6 +195,7 @@ def save_inferences_spark(scored_df) -> None:
         scored_df.withColumn("inserted_ts", F.current_timestamp())
         .write.format("delta")
         .mode("overwrite")
+        .option("overwriteSchema", "true")
         .saveAsTable(f"{schema}.{inferences_table}")
     )
 
@@ -217,6 +218,7 @@ def save_inferences(scored_df: pd.DataFrame) -> None:
         .withColumn("inserted_ts", F.current_timestamp())
         .write.format("delta")
         .mode("overwrite")
+        .option("overwriteSchema", "true")
         .saveAsTable(f"{schema}.{inferences_table}")
     )
 

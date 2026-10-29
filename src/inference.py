@@ -12,6 +12,7 @@ from data.config import (
     DEFAULT_DRIVER_MODEL_PATH,
     DEFAULT_FEATURE_LIST_PATH,
     DEFAULT_SPARK_MODEL_PATH,
+    INFERENCE_DELTA_CASTS,
     INFERENCE_NULL_COLUMNS,
     INFERENCE_OUTPUT_COLUMNS,
     XGB_PROBABILITY_COL,
@@ -45,7 +46,11 @@ def _select_inference_output(scored, output_cols: list[str]):
     missing = [c for c in output_cols if c not in scored.columns]
     if missing:
         raise ValueError(f"Inference output missing columns: {missing}")
-    return scored.select(*present, "click_proba")
+    out = scored.select(*present, "click_proba")
+    for col, spark_type in INFERENCE_DELTA_CASTS.items():
+        if col in out.columns:
+            out = out.withColumn(col, F.col(col).cast(spark_type))
+    return out
 
 
 def infer_holdout_spark(*, model_path: Path, feature_list_path: Path) -> None:

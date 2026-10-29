@@ -36,8 +36,17 @@ INFERENCE_OUTPUT_COLUMNS = [
     "event_date",
     "search_keyword",
     *SCORE_OR_RANK_LEAKAGE_COLS,
+    "final_similarity_score",
     "label",
 ]
+
+# Stable Delta types (avoids DELTA_FAILED_TO_MERGE_FIELDS after schema drift, e.g. double vs int game_position).
+INFERENCE_DELTA_CASTS = {
+    "game_position": "int",
+    "label": "int",
+    "click_proba": "double",
+    "final_similarity_score": "double",
+}
 
 DEFAULT_SPARK_MODEL_PATH = "artifacts/xgb_spark_pipeline"
 DEFAULT_DRIVER_MODEL_PATH = "artifacts/xgb_model.json"
