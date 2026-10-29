@@ -5,7 +5,12 @@ from pathlib import Path
 
 import pandas as pd
 
-from data.config import EXCLUDE_FROM_TRAINING, INFERENCE_NULL_COLUMNS, LABEL_COLUMN
+from data.config import (
+    EXCLUDE_FROM_TRAINING,
+    INFERENCE_IMPUTE_LEAKAGE_COLS,
+    INFERENCE_NULL_COLUMNS,
+    LABEL_COLUMN,
+)
 
 
 def training_matrix(full_df: pd.DataFrame) -> tuple[pd.DataFrame, pd.Series, list[str]]:
@@ -22,11 +27,17 @@ def training_matrix(full_df: pd.DataFrame) -> tuple[pd.DataFrame, pd.Series, lis
 def prepare_inference_features(
     full_df: pd.DataFrame,
     feature_columns: list[str],
+    *,
+    leakage_imputation: dict[str, object] | None = None,
 ) -> pd.DataFrame:
-    """Align columns to training schema; null out position (unknown at rank time)."""
+    """Align columns to training schema; apply leakage null or mean/mode imputation on features."""
     X = full_df.copy()
     for col in INFERENCE_NULL_COLUMNS:
-        if col in X.columns:
+        if col not in feature_columns or col not in X.columns:
+            continue
+        if INFERENCE_IMPUTE_LEAKAGE_COLS and leakage_imputation is not None and col in leakage_imputation:
+            X[col] = leakage_imputation[col]
+        elif not INFERENCE_IMPUTE_LEAKAGE_COLS:
             X[col] = pd.NA
     missing = [c for c in feature_columns if c not in X.columns]
     if missing:

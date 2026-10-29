@@ -25,8 +25,12 @@ EXCLUDE_FROM_TRAINING = [
     *([] if not EXCLUDE_SCORE_OR_RANK_LEAKAGE_FROM_TRAINING else SCORE_OR_RANK_LEAKAGE_COLS),
 ]
 
-# Nulled on the scoring copy only (persisted inference rows keep logged values).
+# Leakage columns adjusted on the scoring copy only (persisted inference rows keep logged values).
 INFERENCE_NULL_COLUMNS = list(SCORE_OR_RANK_LEAKAGE_COLS)
+
+# True: replace leakage feature values with batch mean (numeric) / mode (categorical) at score time.
+# False: set those feature columns to null on the scoring copy.
+INFERENCE_IMPUTE_LEAKAGE_COLS = True
 
 # Slim Delta table for eval / SQL analysis (full feature row lives in full_df holdout).
 INFERENCE_OUTPUT_COLUMNS = [

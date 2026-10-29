@@ -6,32 +6,24 @@ from pathlib import Path
 import xgboost as xgb
 from pyspark.ml import PipelineModel
 from pyspark.ml.functions import vector_to_array
-from pyspark.sql import functions as F
 from pyspark.sql.types import DoubleType, StructField, StructType
 from data.config import (
     DEFAULT_DRIVER_MODEL_PATH,
     DEFAULT_FEATURE_LIST_PATH,
     DEFAULT_SPARK_MODEL_PATH,
     INFERENCE_DELTA_CASTS,
-    INFERENCE_NULL_COLUMNS,
+    INFERENCE_IMPUTE_LEAKAGE_COLS,
     INFERENCE_OUTPUT_COLUMNS,
     XGB_PROBABILITY_COL,
 )
 from data.constants import driver_model_dbfs_path, inferences_table, schema, spark_xgb_training
 from features import load_feature_columns, prepare_inference_features
+from inference_leakage import apply_leakage_fill_for_scoring, compute_leakage_imputation_values
 from load_data import load_holdout_spark_df, save_inferences_spark
+from pyspark.sql import functions as F
 from spark_xgb_prep import cast_bools_to_double, ensure_inference_validation_column
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-
-
-def _null_columns_for_scoring(sdf, feature_cols: list[str]):
-    """Return a copy with serve-time-unknown columns nulled only when they are model features."""
-    out = sdf
-    for col in INFERENCE_NULL_COLUMNS:
-        if col in feature_cols and col in out.columns:
-            out = out.withColumn(col, F.lit(None).cast("double"))
-    return out
 
 
 def _select_inference_output(scored, output_cols: list[str]):
@@ -46,12 +38,20 @@ def _select_inference_output(scored, output_cols: list[str]):
     return out
 
 
+def _prepare_model_input(holdout, feature_cols: list[str]):
+    imputation = None
+    if INFERENCE_IMPUTE_LEAKAGE_COLS:
+        imputation = compute_leakage_imputation_values(holdout, feature_cols)
+        print(f"Inference leakage imputation (batch mean/mode): {imputation}")
+    model_input = apply_leakage_fill_for_scoring(holdout, feature_cols, imputation_values=imputation)
+    return cast_bools_to_double(model_input), imputation
+
+
 def infer_holdout_spark(*, model_path: Path, feature_list_path: Path) -> None:
     holdout = load_holdout_spark_df().withColumn("__row_id", F.monotonically_increasing_id())
     feature_cols = load_feature_columns(feature_list_path)
-    model_input = ensure_inference_validation_column(
-        cast_bools_to_double(_null_columns_for_scoring(holdout, feature_cols))
-    )
+    model_input, _ = _prepare_model_input(holdout, feature_cols)
+    model_input = ensure_inference_validation_column(model_input)
 
     pipeline = PipelineModel.load(str(model_path))
     scored = pipeline.transform(model_input)
@@ -67,7 +67,7 @@ def infer_holdout_spark(*, model_path: Path, feature_list_path: Path) -> None:
 def infer_holdout_driver(*, model_path: Path, feature_list_path: Path) -> None:
     feature_cols = load_feature_columns(feature_list_path)
     holdout = load_holdout_spark_df().withColumn("__row_id", F.monotonically_increasing_id())
-    model_input = cast_bools_to_double(_null_columns_for_scoring(holdout, feature_cols))
+    model_input, imputation = _prepare_model_input(holdout, feature_cols)
 
     prob_schema = StructType(
         [
@@ -81,7 +81,7 @@ def infer_holdout_driver(*, model_path: Path, feature_list_path: Path) -> None:
         booster = xgb.Booster()
         booster.load_model(model_file)
         for pdf in iterator:
-            X = prepare_inference_features(pdf, feature_cols)
+            X = prepare_inference_features(pdf, feature_cols, leakage_imputation=imputation)
             for col in X.columns:
                 if X[col].dtype == "object" or str(X[col].dtype) == "string":
                     X[col] = X[col].astype("category")
@@ -96,9 +96,7 @@ def infer_holdout_driver(*, model_path: Path, feature_list_path: Path) -> None:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(
-        description="Score holdout week (SCORE_OR_RANK_LEAKAGE_COLS nullified on scoring copy)"
-    )
+    parser = argparse.ArgumentParser(description="Score holdout week (leakage cols imputed or nulled on scoring copy)")
     parser.add_argument("--model-path", type=Path, default=None)
     parser.add_argument("--feature-list-path", type=Path, default=REPO_ROOT / DEFAULT_FEATURE_LIST_PATH)
     args, _ = parser.parse_known_args()
