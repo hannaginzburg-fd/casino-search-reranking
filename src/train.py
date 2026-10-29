@@ -16,17 +16,14 @@ from data.config import (
     DEFAULT_DRIVER_MODEL_PATH,
     DEFAULT_FEATURE_LIST_PATH,
     DEFAULT_SPARK_MODEL_PATH,
-    EXCLUDE_FROM_TRAINING,
     INVERSE_PROPENSITY_WEIGHTING,
     IPW_POSITION_COLUMN,
     LABEL_COLUMN,
     XGB_PREDICTION_COL,
     XGB_PROBABILITY_COL,
-    XGB_VALIDATION_INDICATOR_COL,
     share_df_summaries,
 )
 from data.constants import sample_weight_col
-from pyspark.sql import functions as F
 from df_summaries import run_training_summaries
 from data.constants import (
     driver_model_dbfs_path,
@@ -37,7 +34,7 @@ from data.constants import (
     xgb_n_estimators,
     xgb_num_workers,
 )
-from features import save_feature_columns, training_matrix
+from features import save_feature_columns, training_feature_columns, training_matrix
 from load_data import (
     load_train_df_table,
     load_train_spark_df,
@@ -50,10 +47,9 @@ from load_data import (
 )
 from spark_session import get_spark
 from spark_xgb_prep import (
-    add_validation_indicator,
     cast_bools_to_double,
-    cast_label_double,
     estimate_scale_pos_weight,
+    prepare_spark_xgb_fit_union,
 )
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -113,33 +109,22 @@ def _prep_spark_features(sdf, feature_cols):
 def train_spark(*, model_path: Path, feature_list_path: Path, random_state: int = 42) -> dict[str, float]:
     train_sdf = load_train_spark_df()
     val_sdf = load_validation_spark_df()
-    feature_cols = [
-        c for c in train_sdf.columns if c not in EXCLUDE_FROM_TRAINING and c != LABEL_COLUMN
-    ]
+    feature_cols = training_feature_columns(list(train_sdf.columns))
     if INVERSE_PROPENSITY_WEIGHTING and sample_weight_col not in train_sdf.columns:
         raise ValueError(
             f"IPW enabled but {sample_weight_col!r} missing from train frame "
             f"(check {IPW_POSITION_COLUMN!r} on full_df and reload train slice)"
         )
-    save_feature_columns(feature_list_path, feature_cols)
-    save_train_spark_df(train_sdf.select(*feature_cols, LABEL_COLUMN))
-    save_validation_spark_df(val_sdf.select(*feature_cols, LABEL_COLUMN))
-
-    train_sdf, prep_stages = _prep_spark_features(train_sdf, feature_cols)
-    val_sdf = cast_bools_to_double(val_sdf)
-    train_sdf = cast_label_double(train_sdf)
-    val_sdf = cast_label_double(val_sdf)
-
     if INVERSE_PROPENSITY_WEIGHTING:
         print(f"Inverse propensity weighting on train ({IPW_POSITION_COLUMN} marginal); validation unweighted")
-    elif sample_weight_col in train_sdf.columns:
-        train_sdf = train_sdf.drop(sample_weight_col)
 
-    train_sdf = add_validation_indicator(train_sdf, is_validation=False)
-    val_sdf = add_validation_indicator(val_sdf, is_validation=True)
-    if INVERSE_PROPENSITY_WEIGHTING:
-        val_sdf = val_sdf.withColumn(sample_weight_col, F.lit(1.0))
-    fit_sdf = train_sdf.unionByName(val_sdf)
+    save_feature_columns(feature_list_path, feature_cols)
+    model_cols = list(dict.fromkeys([*feature_cols, LABEL_COLUMN]))
+    save_train_spark_df(train_sdf.select(*model_cols))
+    save_validation_spark_df(val_sdf.select(*model_cols))
+
+    train_sdf, val_sdf, fit_sdf = prepare_spark_xgb_fit_union(train_sdf, val_sdf, feature_cols)
+    _, prep_stages = _prep_spark_features(train_sdf, feature_cols)
 
     num_workers = _resolve_xgb_num_workers(fit_sdf, requested=xgb_num_workers)
     train_rows = train_sdf.count()
@@ -206,10 +191,12 @@ def train_driver(*, model_path: Path, feature_list_path: Path, random_state: int
     X_train, y_train, feature_cols = training_matrix(train_pdf)
     X_val, y_val, _ = training_matrix(val_pdf)
     save_feature_columns(feature_list_path, feature_cols)
-    save_train_df(X_train.assign(**{LABEL_COLUMN: y_train}))
-    save_validation_spark_df(
-        get_spark().createDataFrame(X_val.assign(**{LABEL_COLUMN: y_val}))
-    )
+    train_out = X_train.copy()
+    train_out[LABEL_COLUMN] = y_train.to_numpy()
+    save_train_df(train_out)
+    val_out = X_val.copy()
+    val_out[LABEL_COLUMN] = y_val.to_numpy()
+    save_validation_spark_df(get_spark().createDataFrame(val_out))
 
     for frame in (X_train, X_val):
         for col in frame.columns:

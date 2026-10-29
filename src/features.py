@@ -14,13 +14,18 @@ from data.config import (
 )
 
 
+def training_feature_columns(columns: list[str]) -> list[str]:
+    """Model feature names only (no label, weights, ids, or train-only IPW fields)."""
+    return [c for c in columns if c not in EXCLUDE_FROM_TRAINING and c != LABEL_COLUMN]
+
+
 def training_matrix(full_df: pd.DataFrame) -> tuple[pd.DataFrame, pd.Series, list[str]]:
     """Build X, y and the ordered feature column list used for training."""
     if LABEL_COLUMN not in full_df.columns:
         raise ValueError(f"Expected label column {LABEL_COLUMN!r} in full_df")
 
     y = full_df[LABEL_COLUMN].fillna(0).astype(int)
-    feature_cols = [c for c in full_df.columns if c not in EXCLUDE_FROM_TRAINING and c != LABEL_COLUMN]
+    feature_cols = training_feature_columns(list(full_df.columns))
     X = full_df[feature_cols].copy()
     return X, y, feature_cols
 
@@ -53,9 +58,14 @@ def prepare_inference_features(
 
 
 def save_feature_columns(path: str | Path, feature_columns: list[str]) -> None:
+    cleaned = training_feature_columns(feature_columns)
+    if len(cleaned) != len(feature_columns):
+        dropped = [c for c in feature_columns if c not in cleaned]
+        raise ValueError(f"Feature list must not include non-feature columns: {dropped}")
     Path(path).parent.mkdir(parents=True, exist_ok=True)
-    Path(path).write_text(json.dumps(feature_columns, indent=2), encoding="utf-8")
+    Path(path).write_text(json.dumps(cleaned, indent=2), encoding="utf-8")
 
 
 def load_feature_columns(path: str | Path) -> list[str]:
-    return json.loads(Path(path).read_text(encoding="utf-8"))
+    raw = json.loads(Path(path).read_text(encoding="utf-8"))
+    return training_feature_columns(raw)

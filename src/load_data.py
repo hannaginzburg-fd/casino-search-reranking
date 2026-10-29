@@ -13,6 +13,7 @@ from data.config import (
     LABEL_COLUMN,
 )
 from data.constants import sample_weight_col
+from features import training_feature_columns
 from ipw import add_inverse_propensity_weights
 from data.constants import (
     contest_history_lookback_days,
@@ -69,7 +70,7 @@ def _log_temporal_split(
 
 
 def _feature_columns(full: DataFrame) -> list[str]:
-    return [c for c in full.columns if c not in EXCLUDE_FROM_TRAINING]
+    return training_feature_columns(list(full.columns))
 
 
 def _train_frame(full: DataFrame, validation_start: date) -> DataFrame:
@@ -89,13 +90,15 @@ def _train_frame(full: DataFrame, validation_start: date) -> DataFrame:
     out_cols = [*feature_cols, LABEL_COLUMN]
     if INVERSE_PROPENSITY_WEIGHTING:
         out_cols.append(sample_weight_col)
+    out_cols = list(dict.fromkeys(out_cols))
     return train.select(*[c for c in out_cols if c in train.columns])
 
 
 def _validation_frame(full: DataFrame, validation_start: date, holdout_start: date) -> DataFrame:
+    cols = list(dict.fromkeys([*_feature_columns(full), LABEL_COLUMN]))
     return full.filter(
         (F.col("event_date") >= F.lit(validation_start)) & (F.col("event_date") < F.lit(holdout_start))
-    ).select(_feature_columns(full))
+    ).select(*[c for c in cols if c in full.columns])
 
 
 def run_sql_script(sql_path: str | Path) -> None:
