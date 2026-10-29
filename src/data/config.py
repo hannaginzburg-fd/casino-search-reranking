@@ -56,11 +56,16 @@ INFERENCE_NULL_COLUMNS = list(SCORE_OR_RANK_LEAKAGE_COLS)
 # True: mean/mode imputation on scoring copy. Must be False when INVERSE_PROPENSITY_WEIGHTING is True.
 INFERENCE_IMPUTE_LEAKAGE_COLS = False
 
-if INVERSE_PROPENSITY_WEIGHTING and INFERENCE_IMPUTE_LEAKAGE_COLS:
-    raise ValueError(
-        "INVERSE_PROPENSITY_WEIGHTING and INFERENCE_IMPUTE_LEAKAGE_COLS cannot both be enabled "
-        "(IPW drops position from the model; inference uses no null/impute for leakage cols)."
-    )
+def validate_pipeline_config() -> None:
+    """Fail fast on incompatible position-bias / training settings."""
+    if INVERSE_PROPENSITY_WEIGHTING and INFERENCE_IMPUTE_LEAKAGE_COLS:
+        raise ValueError(
+            "INVERSE_PROPENSITY_WEIGHTING and INFERENCE_IMPUTE_LEAKAGE_COLS cannot both be enabled "
+            "(IPW drops position from the model; inference uses no null/impute for leakage cols)."
+        )
+
+
+validate_pipeline_config()
 
 # Slim Delta table for eval / SQL analysis (full feature row lives in full_df holdout).
 INFERENCE_OUTPUT_COLUMNS = [

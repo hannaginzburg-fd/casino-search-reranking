@@ -9,7 +9,8 @@ import seaborn as sns
 from pyspark.sql import DataFrame, functions as F
 from pyspark.sql.types import BooleanType, DecimalType, NumericType, StringType
 
-from data.config import EXCLUDE_FROM_TRAINING, LABEL_COLUMN
+from data.config import LABEL_COLUMN
+from features import training_feature_columns
 from data.constants import summary_corr_sample_rows
 
 CTR_LABEL = "click_through_rate"
@@ -165,7 +166,7 @@ def _bar_chart(pdf: pd.DataFrame, x: str, y: str, title: str, path: Path, y_fmt=
 
 
 def _model_feature_cols(sdf: DataFrame) -> list[str]:
-    return [c for c in sdf.columns if c not in EXCLUDE_FROM_TRAINING and c != LABEL_COLUMN]
+    return training_feature_columns(list(sdf.columns))
 
 
 def _numeric_and_categorical(sdf: DataFrame, feature_cols: list[str]) -> tuple[list[str], list[str]]:

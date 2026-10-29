@@ -15,11 +15,13 @@ from data.config import (
     INFERENCE_OUTPUT_COLUMNS,
     INVERSE_PROPENSITY_WEIGHTING,
     XGB_PROBABILITY_COL,
+    validate_pipeline_config,
 )
 from data.constants import driver_model_dbfs_path, inferences_table, schema, spark_xgb_training
-from features import load_feature_columns, prepare_inference_features
+from features import assert_frame_has_columns, load_feature_columns, prepare_inference_features
 from inference_leakage import apply_leakage_fill_for_scoring, compute_leakage_imputation_values
 from load_data import load_holdout_spark_df, save_inferences_spark
+from spark_session import get_spark
 from pyspark.sql import functions as F
 from spark_xgb_prep import cast_bools_to_double, prepare_spark_inference_input
 
@@ -53,6 +55,9 @@ def _prepare_model_input(holdout, feature_cols: list[str]):
 def infer_holdout_spark(*, model_path: Path, feature_list_path: Path) -> None:
     holdout = load_holdout_spark_df().withColumn("__row_id", F.monotonically_increasing_id())
     feature_cols = load_feature_columns(feature_list_path)
+    if not feature_cols:
+        raise ValueError("feature_columns.json is empty; re-run training")
+    assert_frame_has_columns(list(holdout.columns), feature_cols, frame_name="Holdout")
     model_input, _ = _prepare_model_input(holdout, feature_cols)
     model_input = prepare_spark_inference_input(model_input)
 
@@ -69,7 +74,10 @@ def infer_holdout_spark(*, model_path: Path, feature_list_path: Path) -> None:
 
 def infer_holdout_driver(*, model_path: Path, feature_list_path: Path) -> None:
     feature_cols = load_feature_columns(feature_list_path)
+    if not feature_cols:
+        raise ValueError("feature_columns.json is empty; re-run training")
     holdout = load_holdout_spark_df().withColumn("__row_id", F.monotonically_increasing_id())
+    assert_frame_has_columns(list(holdout.columns), feature_cols, frame_name="Holdout")
     model_input, imputation = _prepare_model_input(holdout, feature_cols)
 
     prob_schema = StructType(
@@ -104,10 +112,13 @@ def main() -> None:
     parser.add_argument("--feature-list-path", type=Path, default=REPO_ROOT / DEFAULT_FEATURE_LIST_PATH)
     args, _ = parser.parse_known_args()
 
+    validate_pipeline_config()
     if spark_xgb_training:
+        get_spark()
         model_path = args.model_path or (REPO_ROOT / DEFAULT_SPARK_MODEL_PATH)
         infer_holdout_spark(model_path=model_path, feature_list_path=args.feature_list_path)
     else:
+        get_spark()
         model_path = args.model_path or (REPO_ROOT / DEFAULT_DRIVER_MODEL_PATH)
         infer_holdout_driver(model_path=model_path, feature_list_path=args.feature_list_path)
 

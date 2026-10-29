@@ -40,14 +40,18 @@ def compute_leakage_imputation_values(sdf: DataFrame, feature_cols: list[str]) -
     return values
 
 
-def _fill_literal(col: str, value: object) -> Column:
+def _fill_literal(value: object, spark_type) -> Column:
     if value is None:
-        return F.lit(None)
+        return F.lit(None).cast(spark_type)
     if isinstance(value, bool):
-        return F.lit(value).cast("double")
+        return F.lit(value).cast(spark_type)
     if isinstance(value, (int, float)):
-        return F.lit(float(value))
-    return F.lit(str(value))
+        return F.lit(value).cast(spark_type)
+    return F.lit(str(value)).cast(spark_type)
+
+
+def _replace_column(sdf: DataFrame, col: str, expr: Column) -> DataFrame:
+    return sdf.select(*[expr.alias(col) if c == col else F.col(c) for c in sdf.columns])
 
 
 def apply_leakage_fill_for_scoring(
@@ -68,9 +72,9 @@ def apply_leakage_fill_for_scoring(
         imputation_values = imputation_values or compute_leakage_imputation_values(out, feature_cols)
         for col in cols:
             fill = imputation_values.get(col)
-            out = out.withColumn(col, _fill_literal(col, fill))
+            out = _replace_column(out, col, _fill_literal(fill, out.schema[col].dataType))
         return out
 
     for col in cols:
-        out = out.withColumn(col, F.lit(None).cast("double"))
+        out = _replace_column(out, col, F.lit(None).cast(out.schema[col].dataType))
     return out

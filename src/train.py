@@ -8,7 +8,7 @@ import xgboost as xgb
 from pyspark.ml import Pipeline
 from pyspark.ml.evaluation import BinaryClassificationEvaluator
 from pyspark.ml.feature import StringIndexer, VectorAssembler
-from pyspark.sql.types import BooleanType, StringType
+from pyspark.sql.types import StringType
 from sklearn.metrics import roc_auc_score
 from xgboost.spark import SparkXGBClassifier
 
@@ -21,7 +21,9 @@ from data.config import (
     LABEL_COLUMN,
     XGB_PREDICTION_COL,
     XGB_PROBABILITY_COL,
+    XGB_VALIDATION_INDICATOR_COL,
     share_df_summaries,
+    validate_pipeline_config,
 )
 from data.constants import sample_weight_col
 from df_summaries import run_training_summaries
@@ -34,7 +36,12 @@ from data.constants import (
     xgb_n_estimators,
     xgb_num_workers,
 )
-from features import save_feature_columns, training_feature_columns, training_matrix
+from features import (
+    assert_frame_has_columns,
+    save_feature_columns,
+    training_feature_columns,
+    training_matrix,
+)
 from load_data import (
     load_train_df_table,
     load_train_spark_df,
@@ -92,6 +99,7 @@ def _maybe_share_df_summaries() -> None:
 
 
 def _prep_spark_features(sdf, feature_cols):
+    assert_frame_has_columns(list(sdf.columns), feature_cols, frame_name="Spark XGB prep")
     sdf = cast_bools_to_double(sdf)
     prep_stages = []
     vec_cols = []
@@ -110,6 +118,14 @@ def train_spark(*, model_path: Path, feature_list_path: Path, random_state: int 
     train_sdf = load_train_spark_df()
     val_sdf = load_validation_spark_df()
     feature_cols = training_feature_columns(list(train_sdf.columns))
+    assert_frame_has_columns(list(train_sdf.columns), feature_cols, frame_name="Train")
+    assert_frame_has_columns(
+        list(val_sdf.columns),
+        [*feature_cols, LABEL_COLUMN],
+        frame_name="Validation",
+    )
+    if not feature_cols:
+        raise ValueError("No training features found after exclusions; check full_df schema and config")
     if INVERSE_PROPENSITY_WEIGHTING and sample_weight_col not in train_sdf.columns:
         raise ValueError(
             f"IPW enabled but {sample_weight_col!r} missing from train frame "
@@ -189,7 +205,13 @@ def train_driver(*, model_path: Path, feature_list_path: Path, random_state: int
     train_pdf = load_train_df_table()
     val_pdf = load_validation_df_table()
     X_train, y_train, feature_cols = training_matrix(train_pdf)
-    X_val, y_val, _ = training_matrix(val_pdf)
+    X_val, y_val, val_feature_cols = training_matrix(val_pdf)
+    if val_feature_cols != feature_cols:
+        raise ValueError(
+            "Train/validation feature mismatch: "
+            f"train-only={set(feature_cols) - set(val_feature_cols)!r}, "
+            f"val-only={set(val_feature_cols) - set(feature_cols)!r}"
+        )
     save_feature_columns(feature_list_path, feature_cols)
     train_out = X_train.copy()
     train_out[LABEL_COLUMN] = y_train.to_numpy()
@@ -255,6 +277,7 @@ def main() -> None:
     parser.add_argument("--feature-list-path", type=Path, default=REPO_ROOT / DEFAULT_FEATURE_LIST_PATH)
     args, _ = parser.parse_known_args()
 
+    validate_pipeline_config()
     get_spark()
     _maybe_share_df_summaries()
     if spark_xgb_training:

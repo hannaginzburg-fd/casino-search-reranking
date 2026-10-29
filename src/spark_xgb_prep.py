@@ -10,11 +10,13 @@ from data.constants import sample_weight_col
 
 
 def cast_bools_to_double(sdf: DataFrame) -> DataFrame:
-    out = sdf
-    for col in out.columns:
-        if isinstance(out.schema[col].dataType, BooleanType):
-            out = out.withColumn(col, F.col(col).cast("double"))
-    return out
+    exprs = []
+    for field in sdf.schema.fields:
+        if isinstance(field.dataType, BooleanType):
+            exprs.append(F.col(field.name).cast("double").alias(field.name))
+        else:
+            exprs.append(F.col(field.name))
+    return sdf.select(*exprs)
 
 
 def cast_label_double(sdf: DataFrame, label_col: str = LABEL_COLUMN) -> DataFrame:
@@ -30,7 +32,12 @@ def prepare_spark_xgb_frame(sdf: DataFrame, *, label_col: str = LABEL_COLUMN) ->
 
 
 def add_validation_indicator(sdf: DataFrame, *, is_validation: bool) -> DataFrame:
-    return sdf.withColumn(XGB_VALIDATION_INDICATOR_COL, F.lit(bool(is_validation)))
+    lit = F.lit(bool(is_validation))
+    if XGB_VALIDATION_INDICATOR_COL in sdf.columns:
+        passthrough = [F.col(c) for c in sdf.columns if c != XGB_VALIDATION_INDICATOR_COL]
+        passthrough.append(lit.alias(XGB_VALIDATION_INDICATOR_COL))
+        return sdf.select(*passthrough)
+    return sdf.withColumn(XGB_VALIDATION_INDICATOR_COL, lit)
 
 
 def ensure_inference_validation_column(sdf: DataFrame) -> DataFrame:
@@ -90,8 +97,11 @@ def prepare_spark_xgb_fit_union(
 def prepare_spark_inference_input(sdf: DataFrame) -> DataFrame:
     """Columns SparkXGB pipelines expect at transform (all position-bias / IPW modes)."""
     out = ensure_inference_validation_column(cast_bools_to_double(sdf))
-    if INVERSE_PROPENSITY_WEIGHTING and sample_weight_col not in out.columns:
-        out = out.withColumn(sample_weight_col, F.lit(1.0))
+    # Pipelines fit with weight_col still require this column at transform (value unused).
+    if sample_weight_col not in out.columns:
+        passthrough = [F.col(c) for c in out.columns]
+        passthrough.append(F.lit(1.0).alias(sample_weight_col))
+        out = out.select(*passthrough)
     return out
 
 

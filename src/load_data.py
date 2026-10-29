@@ -6,12 +6,7 @@ from pathlib import Path
 import pandas as pd
 from pyspark.sql import DataFrame, functions as F
 
-from data.config import (
-    EXCLUDE_FROM_TRAINING,
-    INVERSE_PROPENSITY_WEIGHTING,
-    IPW_POSITION_COLUMN,
-    LABEL_COLUMN,
-)
+from data.config import INVERSE_PROPENSITY_WEIGHTING, IPW_POSITION_COLUMN, LABEL_COLUMN
 from data.constants import sample_weight_col
 from features import training_feature_columns
 from ipw import add_inverse_propensity_weights
@@ -91,11 +86,15 @@ def _train_frame(full: DataFrame, validation_start: date) -> DataFrame:
     if INVERSE_PROPENSITY_WEIGHTING:
         out_cols.append(sample_weight_col)
     out_cols = list(dict.fromkeys(out_cols))
+    if LABEL_COLUMN not in train.columns:
+        raise ValueError(f"Train slice missing label column {LABEL_COLUMN!r}")
     return train.select(*[c for c in out_cols if c in train.columns])
 
 
 def _validation_frame(full: DataFrame, validation_start: date, holdout_start: date) -> DataFrame:
     cols = list(dict.fromkeys([*_feature_columns(full), LABEL_COLUMN]))
+    if LABEL_COLUMN not in full.columns:
+        raise ValueError(f"full_df missing label column {LABEL_COLUMN!r}")
     return full.filter(
         (F.col("event_date") >= F.lit(validation_start)) & (F.col("event_date") < F.lit(holdout_start))
     ).select(*[c for c in cols if c in full.columns])

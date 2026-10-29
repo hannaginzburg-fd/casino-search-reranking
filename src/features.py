@@ -6,17 +6,26 @@ from pathlib import Path
 import pandas as pd
 
 from data.config import (
-    EXCLUDE_FROM_TRAINING,
     INFERENCE_IMPUTE_LEAKAGE_COLS,
     INFERENCE_NULL_COLUMNS,
     INVERSE_PROPENSITY_WEIGHTING,
     LABEL_COLUMN,
+    training_feature_exclude,
 )
 
 
 def training_feature_columns(columns: list[str]) -> list[str]:
     """Model feature names only (no label, weights, ids, or train-only IPW fields)."""
-    return [c for c in columns if c not in EXCLUDE_FROM_TRAINING and c != LABEL_COLUMN]
+    exclude = training_feature_exclude()
+    return list(
+        dict.fromkeys(c for c in columns if c not in exclude and c != LABEL_COLUMN)
+    )
+
+
+def assert_frame_has_columns(frame_columns: list[str], required: list[str], *, frame_name: str) -> None:
+    missing = [c for c in required if c not in frame_columns]
+    if missing:
+        raise ValueError(f"{frame_name} missing required columns: {missing}")
 
 
 def training_matrix(full_df: pd.DataFrame) -> tuple[pd.DataFrame, pd.Series, list[str]]:
