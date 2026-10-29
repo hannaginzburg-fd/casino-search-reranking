@@ -7,7 +7,7 @@ import numpy as np
 import pandas as pd
 import seaborn as sns
 from pyspark.sql import DataFrame, functions as F
-from pyspark.sql.types import BooleanType, NumericType, StringType
+from pyspark.sql.types import BooleanType, DecimalType, NumericType, StringType
 
 from data.config import EXCLUDE_FROM_TRAINING, LABEL_COLUMN
 from data.constants import summary_corr_sample_rows
@@ -272,7 +272,14 @@ def run_training_summaries(sdf: DataFrame, *, output_dir: Path) -> None:
         frac = min(1.0, summary_corr_sample_rows / total)
         sample = sdf.sample(withReplacement=False, fraction=frac, seed=42)
 
-    num_pdf = sample.select(*numeric_cols).toPandas() if numeric_cols else pd.DataFrame()
+    if numeric_cols:
+        num_sdf = sample.select(*numeric_cols)
+        for field in num_sdf.schema.fields:
+            if isinstance(field.dataType, DecimalType):
+                num_sdf = num_sdf.withColumn(field.name, F.col(field.name).cast("double"))
+        num_pdf = num_sdf.toPandas()
+    else:
+        num_pdf = pd.DataFrame()
     if not num_pdf.empty and len(numeric_cols) > 1:
         corr = num_pdf.corr(numeric_only=True)
         fig, ax = plt.subplots(figsize=(max(8, len(corr) * 0.45), max(6, len(corr) * 0.45)))

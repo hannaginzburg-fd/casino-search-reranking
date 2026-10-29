@@ -118,6 +118,7 @@ def save_full_df() -> None:
         .withColumn("inserted_ts", F.current_timestamp())
         .write.format("delta")
         .mode("overwrite")
+        .option("overwriteSchema", "true")
         .saveAsTable(f"{schema}.{full_df_table}")
     )
 
@@ -193,6 +194,7 @@ def save_train_spark_df(train_df: DataFrame) -> None:
         train_df.withColumn("inserted_ts", F.current_timestamp())
         .write.format("delta")
         .mode("overwrite")
+        .option("overwriteSchema", "true")
         .saveAsTable(f"{schema}.{train_df_table}")
     )
 
@@ -204,6 +206,7 @@ def save_validation_spark_df(validation_df: DataFrame) -> None:
         validation_df.withColumn("inserted_ts", F.current_timestamp())
         .write.format("delta")
         .mode("overwrite")
+        .option("overwriteSchema", "true")
         .saveAsTable(f"{schema}.{validation_df_table}")
     )
 
@@ -225,6 +228,7 @@ def save_train_df(train_df: pd.DataFrame) -> None:
         .withColumn("inserted_ts", F.current_timestamp())
         .write.format("delta")
         .mode("overwrite")
+        .option("overwriteSchema", "true")
         .saveAsTable(f"{schema}.{train_df_table}")
     )
 
