@@ -14,7 +14,7 @@ INVERSE_PROPENSITY_WEIGHTING = True
 IPW_POSITION_COLUMN = "game_position"
 
 # Before model fit: EDA charts under artifacts/training_summaries/<split>/ (Spark aggregations; no driver sampling).
-share_df_summaries = False
+share_df_summaries = True
 # Splits to summarize when share_df_summaries is True: "train", "validation", "holdout" (any subset, in order).
 #share_df_summaries_splits = ["train"]
 share_df_summaries_splits = ["train", "validation", "holdout"]
