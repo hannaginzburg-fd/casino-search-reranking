@@ -95,22 +95,25 @@ def _logloss_series_from_spark_xgb_stage(xgb_stage) -> dict[str, list[float]]:
         if picked:
             metric, values = picked
             series[f"train ({metric})"] = values
-    sklearn_model = getattr(xgb_stage, "_xgb_sklearn_model", None)
-    if sklearn_model is not None and hasattr(sklearn_model, "evals_result"):
-        evals = sklearn_model.evals_result()
-        if callable(evals):
-            evals = evals()
-        if isinstance(evals, dict):
-            for dataset, metrics in evals.items():
-                picked = _pick_logloss_metric(metrics if isinstance(metrics, dict) else {})
-                if picked:
-                    metric, values = picked
-                    series.setdefault(f"{dataset} ({metric})", values)
     return series
 
 
+def _safe_evals_result(model) -> dict:
+    if not hasattr(model, "evals_result"):
+        return {}
+    try:
+        evals = model.evals_result()
+        if callable(evals):
+            evals = evals()
+        return evals if isinstance(evals, dict) else {}
+    except Exception as exc:
+        if type(exc).__name__ == "XGBoostError":
+            return {}
+        raise
+
+
 def _logloss_series_from_driver_model(model: xgb.XGBClassifier) -> dict[str, list[float]]:
-    evals = model.evals_result()
+    evals = _safe_evals_result(model)
     series: dict[str, list[float]] = {}
     for dataset, metrics in evals.items():
         picked = _pick_logloss_metric(metrics)
@@ -273,6 +276,8 @@ def train_spark(*, model_path: Path, feature_list_path: Path, random_state: int 
     num_workers = _resolve_xgb_num_workers(fit_sdf, requested=xgb_num_workers)
     train_rows = train_sdf.count()
     val_rows = val_sdf.count()
+    if val_rows == 0:
+        raise ValueError("Validation slice has 0 rows; rebuild full_df or check temporal split constants")
     scale_pos_weight = None
     if xgb_auto_scale_pos_weight:
         scale_pos_weight = estimate_scale_pos_weight(train_sdf)
@@ -371,7 +376,6 @@ def train_driver(*, model_path: Path, feature_list_path: Path, random_state: int
         "random_state": random_state,
         "enable_categorical": True,
         "tree_method": "hist",
-        "early_stopping_rounds": xgb_early_stopping_rounds,
     }
     if xgb_auto_scale_pos_weight:
         pos = int(y_train.sum())
@@ -391,6 +395,7 @@ def train_driver(*, model_path: Path, feature_list_path: Path, random_state: int
         y_train,
         sample_weight=train_weight,
         eval_set=[(X_val, y_val)],
+        early_stopping_rounds=xgb_early_stopping_rounds,
         verbose=False,
     )
     val_auc = roc_auc_score(y_val, model.predict_proba(X_val)[:, 1])

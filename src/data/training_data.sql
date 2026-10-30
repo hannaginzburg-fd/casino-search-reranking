@@ -148,27 +148,55 @@ WHERE a.collector_tstamp >= '{full_df_start_date}'
   AND NOT b.is_test_account
 GROUP BY ALL;
 
+-- search_results_returned rows plus scroll-only game_ids (same user / session / app / keyword).
 CREATE OR REPLACE TEMP VIEW new_agg_events AS
 SELECT
-  a.fanduel_user_id,
-  a.session_id,
-  a.game_id,
-  a.event_date,
-  a.search_keyword,
-  a.state,
-  dayofweek(a.event_date) AS day_of_week,
-  weekofyear(a.event_date) AS week_of_year,
-  dayofmonth(a.event_date) AS day_of_month,
-  month(a.event_date) AS month_of_year,
-  a.app_id,
-  a.game_position
-FROM viewed_games a
-LEFT JOIN scrolled_games s
-  ON a.fanduel_user_id = s.fanduel_user_id
-  AND a.session_id = s.session_id
-  AND a.app_id = s.app_id
-  AND a.game_id = s.game_id
-  AND a.search_keyword = s.search_keyword
+  fanduel_user_id,
+  session_id,
+  game_id,
+  event_date,
+  search_keyword,
+  state,
+  dayofweek(event_date) AS day_of_week,
+  weekofyear(event_date) AS week_of_year,
+  dayofmonth(event_date) AS day_of_month,
+  month(event_date) AS month_of_year,
+  app_id,
+  game_position
+FROM (
+  SELECT
+    fanduel_user_id,
+    session_id,
+    game_id,
+    event_date,
+    search_keyword,
+    state,
+    app_id,
+    game_position
+  FROM viewed_games
+
+  UNION ALL
+
+  SELECT
+    s.fanduel_user_id,
+    s.session_id,
+    s.game_id,
+    s.event_date,
+    s.search_keyword,
+    s.state,
+    s.app_id,
+    s.game_position
+  FROM scrolled_games s
+  WHERE NOT EXISTS (
+    SELECT 1
+    FROM viewed_games v
+    WHERE v.fanduel_user_id = s.fanduel_user_id
+      AND v.session_id = s.session_id
+      AND v.app_id = s.app_id
+      AND v.game_id = s.game_id
+      AND v.search_keyword = s.search_keyword
+  )
+) combined
 GROUP BY ALL;
 
 CREATE OR REPLACE TEMP VIEW game_popularity AS
