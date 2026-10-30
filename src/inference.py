@@ -21,6 +21,7 @@ from data.constants import driver_model_dbfs_path, inferences_table, schema, spa
 from features import assert_frame_has_columns, load_feature_columns, prepare_inference_features
 from inference_leakage import apply_leakage_fill_for_scoring, compute_leakage_imputation_values
 from load_data import load_holdout_spark_df, save_inferences_spark
+from model_diagnostics import print_xgb_model_diagnostics
 from spark_session import get_spark
 from pyspark.sql import functions as F
 from spark_xgb_prep import cast_bools_to_double, prepare_spark_inference_input
@@ -116,11 +117,15 @@ def main() -> None:
     if spark_xgb_training:
         get_spark()
         model_path = args.model_path or (REPO_ROOT / DEFAULT_SPARK_MODEL_PATH)
-        infer_holdout_spark(model_path=model_path, feature_list_path=args.feature_list_path)
+        feature_list_path = args.feature_list_path or (REPO_ROOT / DEFAULT_FEATURE_LIST_PATH)
+        print_xgb_model_diagnostics(model_path=model_path, feature_list_path=feature_list_path, use_spark_pipeline=True)
+        infer_holdout_spark(model_path=model_path, feature_list_path=feature_list_path)
     else:
         get_spark()
         model_path = args.model_path or (REPO_ROOT / DEFAULT_DRIVER_MODEL_PATH)
-        infer_holdout_driver(model_path=model_path, feature_list_path=args.feature_list_path)
+        feature_list_path = args.feature_list_path or (REPO_ROOT / DEFAULT_FEATURE_LIST_PATH)
+        print_xgb_model_diagnostics(model_path=model_path, feature_list_path=feature_list_path, use_spark_pipeline=False)
+        infer_holdout_driver(model_path=model_path, feature_list_path=feature_list_path)
 
 
 if __name__ == "__main__":
