@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+import shutil
 from pathlib import Path
 
 import matplotlib.pyplot as plt
@@ -278,6 +279,8 @@ def _write_index(output_dir: Path, paths: list[Path]) -> None:
 
 
 def run_training_summaries(sdf: DataFrame, *, output_dir: Path) -> None:
+    if output_dir.exists():
+        shutil.rmtree(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
     saved: list[Path] = []
 
