@@ -25,7 +25,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_CALIBRATION_PLOT = REPO_ROOT / "artifacts" / "holdout_calibration.png"
 
 SEARCH_KEYS = ("fanduel_user_id", "session_id", "search_keyword")
-NDCG_K = 10
+NDCG_K_VALUES = (1, 5, 10)
 PRECISION_RECALL_K = (1, 5, 10)
 
 
@@ -62,8 +62,8 @@ def _search_group_metrics(pdf: pd.DataFrame) -> pd.DataFrame:
             columns=[
                 "n_games",
                 "n_clicks",
-                "ndcg_baseline",
-                "ndcg_rerank",
+                *[f"ndcg{k}_baseline" for k in NDCG_K_VALUES],
+                *[f"ndcg{k}_rerank" for k in NDCG_K_VALUES],
                 *[f"precision{k}_baseline" for k in PRECISION_RECALL_K],
                 *[f"recall{k}_baseline" for k in PRECISION_RECALL_K],
                 *[f"precision{k}_rerank" for k in PRECISION_RECALL_K],
@@ -74,14 +74,15 @@ def _search_group_metrics(pdf: pd.DataFrame) -> pd.DataFrame:
     rerank = pdf.sort_values("click_proba", ascending=False)
     rel_b = baseline[LABEL_COLUMN].to_numpy()
     rel_r = rerank[LABEL_COLUMN].to_numpy()
-    k_b = min(NDCG_K, len(rel_b))
-    k_r = min(NDCG_K, len(rel_r))
     row: dict = {
         "n_games": len(pdf),
         "n_clicks": int(pdf[LABEL_COLUMN].sum()),
-        "ndcg_baseline": _ndcg_binary(rel_b[:k_b]),
-        "ndcg_rerank": _ndcg_binary(rel_r[:k_r]),
     }
+    for k in NDCG_K_VALUES:
+        k_b = min(k, len(rel_b))
+        k_r = min(k, len(rel_r))
+        row[f"ndcg{k}_baseline"] = _ndcg_binary(rel_b[:k_b])
+        row[f"ndcg{k}_rerank"] = _ndcg_binary(rel_r[:k_r])
     for k in PRECISION_RECALL_K:
         p_b, r_b = _precision_recall_at_k(rel_b, k)
         p_r, r_r = _precision_recall_at_k(rel_r, k)
@@ -96,8 +97,8 @@ _GROUP_METRICS_SCHEMA = StructType(
     [
         StructField("n_games", IntegerType(), False),
         StructField("n_clicks", LongType(), False),
-        StructField("ndcg_baseline", DoubleType(), False),
-        StructField("ndcg_rerank", DoubleType(), False),
+        *[StructField(f"ndcg{k}_baseline", DoubleType(), False) for k in NDCG_K_VALUES],
+        *[StructField(f"ndcg{k}_rerank", DoubleType(), False) for k in NDCG_K_VALUES],
         *[StructField(f"precision{k}_baseline", DoubleType(), False) for k in PRECISION_RECALL_K],
         *[StructField(f"recall{k}_baseline", DoubleType(), False) for k in PRECISION_RECALL_K],
         *[StructField(f"precision{k}_rerank", DoubleType(), False) for k in PRECISION_RECALL_K],
@@ -135,14 +136,25 @@ def _holdout_eval_context(ranked: DataFrame) -> dict:
         F.sum(LABEL_COLUMN).alias("total_clicks"),
         F.count(F.lit(1)).alias("total_views"),
     ).first()
+    search_counts = (
+        ranked.groupBy(*SEARCH_KEYS)
+        .agg(F.max(LABEL_COLUMN).alias("_any_click"))
+        .agg(
+            F.count(F.lit(1)).alias("total_searches_viewed"),
+            F.sum(F.when(F.col("_any_click") == 1, 1).otherwise(0)).alias("total_searches_with_click"),
+        )
+        .first()
+    )
     return {
         "min_date": row["min_date"],
         "max_date": row["max_date"],
-        "num_unique_users": int(row["num_unique_users"] or 0),
+        "model_position_debias_strategy": model_position_debias_strategy(),
         "num_unique_games": int(row["num_unique_games"] or 0),
+        "num_unique_users": int(row["num_unique_users"] or 0),
         "total_clicks": int(row["total_clicks"] or 0),
         "total_views": int(row["total_views"] or 0),
-        "model_position_debias_strategy": model_position_debias_strategy(),
+        "total_searches_with_click": int(search_counts["total_searches_with_click"] or 0),
+        "total_searches_viewed": int(search_counts["total_searches_viewed"] or 0),
     }
 
 
@@ -153,7 +165,20 @@ def _metric_row(
     *,
     context: dict,
 ) -> dict:
-    return {"metric": metric, "baseline": baseline, "reranked": reranked, **context}
+    return {
+        "metric": metric,
+        "baseline": baseline,
+        "reranked": reranked,
+        "min_date": context["min_date"],
+        "max_date": context["max_date"],
+        "model_position_debias_strategy": context["model_position_debias_strategy"],
+        "num_unique_games": context["num_unique_games"],
+        "num_unique_users": context["num_unique_users"],
+        "total_clicks": context["total_clicks"],
+        "total_views": context["total_views"],
+        "total_searches_with_click": context["total_searches_with_click"],
+        "total_searches_viewed": context["total_searches_viewed"],
+    }
 
 
 def _ranking_metrics_rows(
@@ -165,8 +190,16 @@ def _ranking_metrics_rows(
 ) -> list[dict]:
     rows = [
         _metric_row("avg_clicked_game_position", avg_clicked_baseline, avg_clicked_reranked, context=context),
-        _metric_row(f"ndcg@{NDCG_K}", summary["ndcg_baseline"], summary["ndcg_rerank"], context=context),
     ]
+    for k in NDCG_K_VALUES:
+        rows.append(
+            _metric_row(
+                f"ndcg@{k}",
+                summary[f"ndcg{k}_baseline"],
+                summary[f"ndcg{k}_rerank"],
+                context=context,
+            )
+        )
     for k in PRECISION_RECALL_K:
         rows.append(
             _metric_row(
@@ -236,6 +269,8 @@ def print_holdout_ranking_diagnostics(
         f"Holdout window: {context['min_date']} .. {context['max_date']} | "
         f"users={context['num_unique_users']:,} games={context['num_unique_games']:,} | "
         f"views={context['total_views']:,} clicks={context['total_clicks']:,} | "
+        f"searches={context['total_searches_viewed']:,} "
+        f"searches_with_click={context['total_searches_with_click']:,} | "
         f"position debias strategy={context['model_position_debias_strategy']}"
     )
 
@@ -290,8 +325,8 @@ def print_holdout_ranking_diagnostics(
     summary = metrics.agg(
         F.count(F.lit(1)).alias("n_search_contexts"),
         F.sum("n_clicks").alias("total_clicks"),
-        F.avg("ndcg_baseline").alias("ndcg_baseline"),
-        F.avg("ndcg_rerank").alias("ndcg_rerank"),
+        *[F.avg(f"ndcg{k}_baseline").alias(f"ndcg{k}_baseline") for k in NDCG_K_VALUES],
+        *[F.avg(f"ndcg{k}_rerank").alias(f"ndcg{k}_rerank") for k in NDCG_K_VALUES],
         *[F.avg(f"precision{k}_baseline").alias(f"precision{k}_baseline") for k in PRECISION_RECALL_K],
         *[F.avg(f"recall{k}_baseline").alias(f"recall{k}_baseline") for k in PRECISION_RECALL_K],
         *[F.avg(f"precision{k}_rerank").alias(f"precision{k}_rerank") for k in PRECISION_RECALL_K],
@@ -300,8 +335,11 @@ def print_holdout_ranking_diagnostics(
 
     print(f"\nSearch contexts (user / session / keyword): {summary['n_search_contexts']:,}")
     print(f"Total clicks in holdout: {int(summary['total_clicks'] or 0):,}")
-    print(f"Macro-avg NDCG@{NDCG_K} — baseline (game_position): {summary['ndcg_baseline']:.4f}")
-    print(f"Macro-avg NDCG@{NDCG_K} — reranked (click_proba):   {summary['ndcg_rerank']:.4f}")
+    for k in NDCG_K_VALUES:
+        print(
+            f"Macro-avg NDCG@{k} — baseline (game_position): {summary[f'ndcg{k}_baseline']:.4f}, "
+            f"rerank (click_proba): {summary[f'ndcg{k}_rerank']:.4f}"
+        )
     for k in PRECISION_RECALL_K:
         print(
             f"Macro-avg precision@{k} — baseline: {summary[f'precision{k}_baseline']:.4f}, "

@@ -284,6 +284,23 @@ def save_inferences_spark(scored_df) -> None:
     )
 
 
+INFERENCE_EVAL_METRICS_COLUMNS = [
+    "metric",
+    "baseline",
+    "reranked",
+    "min_date",
+    "max_date",
+    "model_position_debias_strategy",
+    "num_unique_games",
+    "num_unique_users",
+    "total_clicks",
+    "total_views",
+    "total_searches_with_click",
+    "total_searches_viewed",
+    "inserted_ts",
+]
+
+
 def save_holdout_ranking_metrics(rows: list[dict]) -> None:
     if not rows:
         return
@@ -291,6 +308,7 @@ def save_holdout_ranking_metrics(rows: list[dict]) -> None:
         get_spark()
         .createDataFrame(rows)
         .withColumn("inserted_ts", F.current_timestamp())
+        .select(*INFERENCE_EVAL_METRICS_COLUMNS)
         .write.format("delta")
         .mode("append")
         .option("mergeSchema", "true")
