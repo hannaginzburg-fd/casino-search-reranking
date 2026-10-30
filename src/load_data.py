@@ -176,13 +176,31 @@ def print_temporal_split_overview() -> None:
         )
 
 
-def load_train_summary_spark_df() -> DataFrame:
-    """Full temporal train slice (no feature-column drop, no driver sampling) for EDA."""
+SUMMARY_SPLITS = frozenset({"train", "validation", "holdout"})
+
+
+def load_summary_spark_df(split: str) -> DataFrame:
+    """Temporal slice for EDA (full rows, no feature drop, no train driver sampling)."""
+    if split not in SUMMARY_SPLITS:
+        raise ValueError(f"Unknown summary split {split!r}; use train, validation, or holdout")
     full = get_spark().table(f"{schema}.{full_df_table}")
     max_date = _max_event_date(full)
-    validation_start, _ = _split_boundaries(max_date)
+    validation_start, holdout_start = _split_boundaries(max_date)
     cols = [c for c in full.columns if c != "inserted_ts"]
-    return full.filter(F.col("event_date") < F.lit(validation_start)).select(cols)
+    if split == "train":
+        sliced = full.filter(F.col("event_date") < F.lit(validation_start))
+    elif split == "validation":
+        sliced = full.filter(
+            (F.col("event_date") >= F.lit(validation_start)) & (F.col("event_date") < F.lit(holdout_start))
+        )
+    else:
+        sliced = full.filter(F.col("event_date") >= F.lit(holdout_start))
+    return sliced.select(cols)
+
+
+def load_train_summary_spark_df() -> DataFrame:
+    """Full temporal train slice (no feature-column drop, no driver sampling) for EDA."""
+    return load_summary_spark_df("train")
 
 
 def load_train_spark_df() -> DataFrame:

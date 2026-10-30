@@ -35,6 +35,9 @@ DIMENSION_BAR_CUTS = [
     *[(c, c, "rank") for c in R30_RANK_COLS],
 ]
 
+# Search scores: EDA with CTR + row-count quantile bins (base is not a model feature).
+SIMILARITY_SCORE_EDA_COLS = ("base_similarity_score", "final_similarity_score")
+
 CATEGORICAL_OVERRIDES = {
     "app_id",
     "game_super_class",
@@ -271,14 +274,54 @@ def _ctr_by_quant_bins(sdf: DataFrame, col: str, n_bins: int = 20) -> pd.DataFra
     return _order_chart_pdf(pdf, col)
 
 
-def _write_index(output_dir: Path, paths: list[Path]) -> None:
-    lines = ["# Training data summaries\n"]
+def _write_index(output_dir: Path, paths: list[Path], *, title: str) -> None:
+    lines = [f"# {title}\n"]
     for p in sorted(paths):
         lines.append(f"- [{p.name}]({p.name})\n")
     (output_dir / "README.md").write_text("".join(lines), encoding="utf-8")
 
 
-def run_training_summaries(sdf: DataFrame, *, output_dir: Path) -> None:
+def write_summaries_root_index(base_output_dir: Path, splits: list[str]) -> None:
+    lines = ["# Data summaries by temporal split\n"]
+    for split in splits:
+        lines.append(f"- [{split}/]({split}/)\n")
+    base_output_dir.mkdir(parents=True, exist_ok=True)
+    (base_output_dir / "README.md").write_text("".join(lines), encoding="utf-8")
+
+
+def _similarity_score_bin_charts(
+    sdf: DataFrame,
+    *,
+    output_dir: Path,
+    split_label: str,
+    saved: list[Path],
+) -> None:
+    for col in SIMILARITY_SCORE_EDA_COLS:
+        if col not in sdf.columns:
+            continue
+        stats = _quantile_summary(sdf, col)
+        if stats:
+            print(f"\n{col} ({split_label}) quantiles:\n", pd.DataFrame([stats]).to_string(index=False))
+        bin_pdf = _ctr_by_quant_bins(sdf, col)
+        if bin_pdf.empty:
+            continue
+        slug = _slug(col)
+        ctr_path = output_dir / f"ctr_by_{slug}_bins.png"
+        _bar_chart(bin_pdf, col, CTR_LABEL, f"CTR by {col} (quantile bins, {split_label})", ctr_path)
+        saved.append(ctr_path)
+        count_path = output_dir / f"count_by_{slug}_bins.png"
+        _bar_chart(
+            bin_pdf,
+            col,
+            "row_count",
+            f"Row count by {col} (quantile bins, {split_label})",
+            count_path,
+            y_fmt=lambda v: f"{int(v):,}",
+        )
+        saved.append(count_path)
+
+
+def run_dataset_summaries(sdf: DataFrame, *, output_dir: Path, split_label: str) -> None:
     if output_dir.exists():
         shutil.rmtree(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -287,12 +330,19 @@ def run_training_summaries(sdf: DataFrame, *, output_dir: Path) -> None:
     if LABEL_COLUMN not in sdf.columns or "fanduel_user_id" not in sdf.columns:
         raise ValueError("Summary frame requires fanduel_user_id and label columns")
 
-    print(f"share_df_summaries: writing charts to {output_dir}")
+    print(f"share_df_summaries: writing {split_label} charts to {output_dir}")
 
     weekly = _weekly_metrics(sdf)
     for metric, fmt in ((UNIQUE_USERS, lambda v: f"{int(v):,}"), (CTR_LABEL, _pct_fmt)):
         fname = output_dir / f"weekly_{metric}.png"
-        _line_chart(weekly, "week_start", metric, f"{metric} by calendar week (train)", fname, y_fmt=fmt)
+        _line_chart(
+            weekly,
+            "week_start",
+            metric,
+            f"{metric} by calendar week ({split_label})",
+            fname,
+            y_fmt=fmt,
+        )
         saved.append(fname)
         print(weekly[["week_start", metric]].to_string(index=False))
 
@@ -303,14 +353,17 @@ def run_training_summaries(sdf: DataFrame, *, output_dir: Path) -> None:
         cut = _agg_users_ctr(sdf.withColumn("dimension", dim), "dimension")
         for metric, fmt in ((UNIQUE_USERS, lambda v: f"{int(v):,}"), (CTR_LABEL, _pct_fmt)):
             fname = output_dir / f"bar_{slug}_{metric}.png"
-            title = f"{metric} by {slug} (train)"
+            title = f"{metric} by {slug} ({split_label})"
             if bucket_kind == "recency":
-                title = f"{metric} by {slug} (in # of days, train)"
+                title = f"{metric} by {slug} (in # of days, {split_label})"
             _bar_chart(cut, "dimension", metric, title, fname, y_fmt=fmt)
             saved.append(fname)
 
     feature_cols = _model_feature_cols(sdf)
     numeric_cols, categorical_cols = _numeric_and_categorical(sdf, feature_cols)
+    for score_col in SIMILARITY_SCORE_EDA_COLS:
+        if score_col in sdf.columns and score_col not in numeric_cols:
+            numeric_cols.append(score_col)
 
     sample = sdf
     total = sdf.count()
@@ -318,19 +371,20 @@ def run_training_summaries(sdf: DataFrame, *, output_dir: Path) -> None:
         frac = min(1.0, summary_corr_sample_rows / total)
         sample = sdf.sample(withReplacement=False, fraction=frac, seed=42)
 
-    if numeric_cols:
-        num_sdf = sample.select(*numeric_cols)
+    corr_numeric = [c for c in numeric_cols if c not in SIMILARITY_SCORE_EDA_COLS]
+    if corr_numeric:
+        num_sdf = sample.select(*corr_numeric)
         for field in num_sdf.schema.fields:
             if isinstance(field.dataType, DecimalType):
                 num_sdf = num_sdf.withColumn(field.name, F.col(field.name).cast("double"))
         num_pdf = num_sdf.toPandas()
     else:
         num_pdf = pd.DataFrame()
-    if not num_pdf.empty and len(numeric_cols) > 1:
+    if not num_pdf.empty and len(corr_numeric) > 1:
         corr = num_pdf.corr(numeric_only=True)
         fig, ax = plt.subplots(figsize=(max(8, len(corr) * 0.45), max(6, len(corr) * 0.45)))
         sns.heatmap(corr, annot=len(corr) <= 12, fmt=".2f", cmap="coolwarm", center=0, ax=ax, square=True)
-        ax.set_title("Feature cross-correlation (numeric, sampled train)")
+        ax.set_title(f"Feature cross-correlation (numeric, sampled {split_label})")
         fig.tight_layout()
         corr_path = output_dir / "feature_correlation_heatmap.png"
         fig.savefig(corr_path, dpi=120)
@@ -342,26 +396,51 @@ def run_training_summaries(sdf: DataFrame, *, output_dir: Path) -> None:
         stats = _quantile_summary(sdf, col)
         if stats:
             quant_rows.append(stats)
+        if col in SIMILARITY_SCORE_EDA_COLS:
+            continue
         bin_pdf = _ctr_by_quant_bins(sdf, col)
         if not bin_pdf.empty:
             fname = output_dir / f"ctr_by_{_slug(col)}_bins.png"
-            _bar_chart(bin_pdf, col, CTR_LABEL, f"CTR by {col} (quantile bins, train)", fname)
+            _bar_chart(
+                bin_pdf,
+                col,
+                CTR_LABEL,
+                f"CTR by {col} (quantile bins, {split_label})",
+                fname,
+            )
             saved.append(fname)
     if quant_rows:
         quant_df = pd.DataFrame(quant_rows)
         quant_df.to_csv(output_dir / "numeric_feature_summaries.csv", index=False)
-        print("\nNumeric feature summaries:\n", quant_df.to_string(index=False))
+        print(f"\nNumeric feature summaries ({split_label}):\n", quant_df.to_string(index=False))
+
+    _similarity_score_bin_charts(sdf, output_dir=output_dir, split_label=split_label, saved=saved)
 
     for col in categorical_cols:
         if col not in sdf.columns:
             continue
         cat = _agg_users_ctr(sdf.withColumn("dimension", F.col(col).cast("string")), "dimension")
         fname = output_dir / f"cat_count_{_slug(col)}.png"
-        _bar_chart(cat, "dimension", "row_count", f"Row count by {col} (train)", fname, y_fmt=lambda v: f"{int(v):,}")
+        _bar_chart(
+            cat,
+            "dimension",
+            "row_count",
+            f"Row count by {col} ({split_label})",
+            fname,
+            y_fmt=lambda v: f"{int(v):,}",
+        )
         saved.append(fname)
         fname = output_dir / f"cat_ctr_{_slug(col)}.png"
-        _bar_chart(cat, "dimension", CTR_LABEL, f"CTR by {col} (train)", fname)
+        _bar_chart(cat, "dimension", CTR_LABEL, f"CTR by {col} ({split_label})", fname)
         saved.append(fname)
 
-    _write_index(output_dir, saved)
-    print(f"share_df_summaries: wrote {len(saved)} charts (+ README.md, numeric_feature_summaries.csv)")
+    _write_index(output_dir, saved, title=f"Data summaries ({split_label})")
+    print(
+        f"share_df_summaries: {split_label} — wrote {len(saved)} charts "
+        "(+ README.md, numeric_feature_summaries.csv)"
+    )
+
+
+def run_training_summaries(sdf: DataFrame, *, output_dir: Path) -> None:
+    """Backward-compatible entrypoint (train split only)."""
+    run_dataset_summaries(sdf, output_dir=output_dir, split_label="train")

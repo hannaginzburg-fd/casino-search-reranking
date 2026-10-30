@@ -22,7 +22,7 @@ notebooks/inference.ipynb
 | Stage | Behavior |
 |-------|----------|
 | **`full_df`** | All columns from `base_features` where `final_similarity_score IS NOT NULL` |
-| **Training** | `event_date` before validation window; optional **`share_df_summaries`** EDA → `artifacts/training_summaries/` |
+| **Training** | `event_date` before validation window; optional **`share_df_summaries`** EDA → `artifacts/training_summaries/<split>/` (`share_df_summaries_splits`: train, validation, holdout) |
 | **Validation** | **`validation_days`** immediately before holdout — **`cas_search_reranking_validation_df`** |
 | **Training (IPW)** | If **`INVERSE_PROPENSITY_WEIGHTING`**: drop **`game_position`** from features; train with **`sample_weight = 1/P(position)`** (clipped); mutually exclusive with inference null/impute |
 | **Inference** | Standard score (no IPW weights); with IPW, no null/impute on leakage cols; logged cols unchanged in Delta |

@@ -29,11 +29,12 @@ from data.config import (
     XGB_PROBABILITY_COL,
     XGB_VALIDATION_INDICATOR_COL,
     share_df_summaries,
+    share_df_summaries_splits,
     validate_pipeline_config,
 )
 from data.constants import sample_weight_col
 from artifact_utils import reset_artifacts_dir
-from df_summaries import run_training_summaries
+from df_summaries import run_dataset_summaries, write_summaries_root_index
 from data.constants import (
     driver_model_dbfs_path,
     spark_xgb_training,
@@ -53,6 +54,7 @@ from inference_leakage import compute_leakage_imputation_values
 from load_data import (
     load_train_df_table,
     load_train_spark_df,
+    load_summary_spark_df,
     load_train_summary_spark_df,
     load_validation_df_table,
     load_validation_spark_df,
@@ -227,7 +229,20 @@ def _resolve_xgb_num_workers(train_sdf, *, requested: int | None) -> int:
 def _maybe_share_df_summaries() -> None:
     if not share_df_summaries:
         return
-    run_training_summaries(load_train_summary_spark_df(), output_dir=SUMMARY_OUTPUT_DIR)
+    allowed = {"train", "validation", "holdout"}
+    ran: list[str] = []
+    for split in share_df_summaries_splits:
+        if split not in allowed:
+            raise ValueError(
+                f"Invalid share_df_summaries_splits entry {split!r}; use train, validation, and/or holdout"
+            )
+        run_dataset_summaries(
+            load_summary_spark_df(split),
+            output_dir=SUMMARY_OUTPUT_DIR / split,
+            split_label=split,
+        )
+        ran.append(split)
+    write_summaries_root_index(SUMMARY_OUTPUT_DIR, ran)
 
 
 def _prep_spark_features(sdf, feature_cols):
