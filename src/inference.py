@@ -21,6 +21,7 @@ from data.constants import driver_model_dbfs_path, inferences_table, schema, spa
 from features import assert_frame_has_columns, load_feature_columns, prepare_inference_features
 from inference_leakage import apply_leakage_fill_for_scoring, compute_leakage_imputation_values
 from load_data import load_holdout_spark_df, save_inferences_spark
+from artifact_utils import reset_inference_artifacts
 from holdout_eval import print_holdout_ranking_diagnostics
 from model_diagnostics import print_xgb_model_diagnostics
 from spark_session import get_spark
@@ -123,6 +124,7 @@ def main() -> None:
     args, _ = parser.parse_known_args()
 
     validate_pipeline_config()
+    reset_inference_artifacts()
     if spark_xgb_training:
         get_spark()
         model_path = args.model_path or (REPO_ROOT / DEFAULT_SPARK_MODEL_PATH)

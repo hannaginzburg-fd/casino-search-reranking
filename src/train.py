@@ -32,6 +32,7 @@ from data.config import (
     validate_pipeline_config,
 )
 from data.constants import sample_weight_col
+from artifact_utils import reset_artifacts_dir
 from df_summaries import run_training_summaries
 from data.constants import (
     driver_model_dbfs_path,
@@ -425,6 +426,8 @@ def main() -> None:
 
     validate_pipeline_config()
     get_spark()
+    reset_artifacts_dir()
+    print(f"Cleared prior outputs under {REPO_ROOT / 'artifacts'}")
     print_training_run_header()
     _maybe_share_df_summaries()
     if spark_xgb_training:
