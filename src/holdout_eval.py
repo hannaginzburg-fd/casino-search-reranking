@@ -38,14 +38,14 @@ def _dcg_binary(relevances: np.ndarray) -> float:
 
 
 def _ndcg_binary(relevances_ordered: np.ndarray) -> float:
-    rel = releances_ordered.astype(float)
+    rel = relevances_ordered.astype(float)
     dcg = _dcg_binary(rel)
     ideal = _dcg_binary(np.sort(rel)[::-1])
     return dcg / ideal if ideal > 0 else 0.0
 
 
 def _precision_recall_at_k(relevances_ordered: np.ndarray, k: int) -> tuple[float, float]:
-    rel = releances_ordered.astype(float)
+    rel = relevances_ordered.astype(float)
     if rel.size == 0:
         return 0.0, 0.0
     k = min(k, rel.size)

@@ -41,10 +41,19 @@ def _importance_for_index(
     return 0.0
 
 
+def _booster_tree_count(booster: xgb.Booster) -> int:
+    try:
+        return max(int(booster.num_boosted_rounds()), 1)
+    except Exception:
+        dump = booster.get_dump()
+        return max(len(dump), 1)
+
+
 def _importance_frame(booster: xgb.Booster, vector_feature_names: list[str]) -> pd.DataFrame:
     weight = booster.get_score(importance_type="weight") or {}
     gain = booster.get_score(importance_type="gain") or {}
     cover = booster.get_score(importance_type="cover") or {}
+    n_trees = _booster_tree_count(booster)
 
     rows: list[dict] = []
     for i, vec_col in enumerate(vector_feature_names):
@@ -52,10 +61,13 @@ def _importance_frame(booster: xgb.Booster, vector_feature_names: list[str]) -> 
         split_count = _importance_for_index(weight, index=i, vec_col=vec_col, display=display)
         total_gain = _importance_for_index(gain, index=i, vec_col=vec_col, display=display)
         avg_cover = _importance_for_index(cover, index=i, vec_col=vec_col, display=display)
+        split_count_int = int(split_count)
         rows.append(
             {
                 "feature": display,
-                "split_count": int(split_count),
+                "num_trees": n_trees,
+                "split_count": split_count_int,
+                "avg_splits_per_tree": split_count_int / n_trees,
                 "total_gain": total_gain,
                 "avg_gain_per_split": (total_gain / split_count) if split_count else 0.0,
                 "avg_cover": avg_cover,
@@ -68,7 +80,7 @@ def _importance_frame(booster: xgb.Booster, vector_feature_names: list[str]) -> 
         df["gain_share_pct"] = 100.0 * df["total_gain"] / total_gain
     else:
         df["gain_share_pct"] = 0.0
-    return df.sort_values(["split_count", "total_gain"], ascending=[False, False]).reset_index(drop=True)
+    return df.sort_values(["gain_share_pct", "total_gain"], ascending=[False, False]).reset_index(drop=True)
 
 
 def _load_booster_and_names(
@@ -117,9 +129,11 @@ def print_xgb_model_diagnostics(
     """
     Print split-based importance from the trained booster.
 
+    - num_trees: boosted rounds in the ensemble (same on every row).
     - split_count: how often a feature is used to split (XGB ``weight``).
+    - avg_splits_per_tree: split_count / num_trees.
     - total_gain / avg_gain_per_split: loss reduction attributed to that feature (XGB ``gain``).
-    - gain_share_pct: share of total gain across features.
+    - gain_share_pct: share of total gain across features (table sorted by this, descending).
     - avg_cover: average coverage on splits using the feature (XGB ``cover``).
     """
     spark_path = spark_xgb_training if use_spark_pipeline is None else use_spark_pipeline
@@ -132,15 +146,13 @@ def print_xgb_model_diagnostics(
         use_spark_pipeline=spark_path,
     )
     df = _importance_frame(booster, vector_names)
-    try:
-        n_trees = int(booster.num_boosted_rounds())
-    except Exception:
-        n_trees = len(booster.get_dump())
+    n_trees = _booster_tree_count(booster)
 
     print("=== XGBoost feature importance (trained model) ===")
     print(
-        "How to read: split_count = # of tree splits on the feature; "
-        "total_gain / gain_share_pct = how much loss improvement those splits contributed; "
+        "How to read: gain_share_pct = share of total gain (sorted desc); "
+        "split_count = # of tree splits on the feature; "
+        "avg_splits_per_tree = split_count / n_trees; "
         "avg_gain_per_split = total_gain / split_count."
     )
     print(f"Model: {model_path}")
@@ -149,14 +161,14 @@ def print_xgb_model_diagnostics(
         print("No split importance scores returned (empty booster?).")
     else:
         show = df.copy()
+        show["avg_splits_per_tree"] = show["avg_splits_per_tree"].map(lambda v: f"{v:.4f}")
         show["total_gain"] = show["total_gain"].map(lambda v: f"{v:.4g}")
         show["avg_gain_per_split"] = show["avg_gain_per_split"].map(lambda v: f"{v:.4g}")
         show["avg_cover"] = show["avg_cover"].map(lambda v: f"{v:.4g}")
         show["gain_share_pct"] = show["gain_share_pct"].map(lambda v: f"{v:.1f}%")
         print(show.to_string(index=False))
         top = df.head(10)
-        print("\nTop features by split_count:", ", ".join(top["feature"].tolist()))
-        print("Top features by total_gain:", ", ".join(df.sort_values("total_gain", ascending=False).head(10)["feature"].tolist()))
+        print("\nTop features by gain_share_pct:", ", ".join(top["feature"].tolist()))
 
     if output_csv is not None:
         output_csv.parent.mkdir(parents=True, exist_ok=True)
