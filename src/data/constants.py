@@ -30,6 +30,7 @@ full_df_table = "cas_search_reranking_full_df"
 train_df_table = "cas_search_reranking_train_df"
 validation_df_table = "cas_search_reranking_validation_df"
 inferences_table = "cas_search_reranking_xgboost_inferences"
+inference_eval_metrics_table = "cas_search_reranking_inference_eval_metrics"
 
 ipw_weight_clip_max = 100.0
 sample_weight_col = "sample_weight"

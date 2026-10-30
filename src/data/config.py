@@ -56,6 +56,15 @@ INFERENCE_NULL_COLUMNS = list(SCORE_OR_RANK_LEAKAGE_COLS)
 # True: mean/mode imputation on scoring copy. Must be False when INVERSE_PROPENSITY_WEIGHTING is True.
 INFERENCE_IMPUTE_LEAKAGE_COLS = False
 
+def model_position_debias_strategy() -> str:
+    """Label for inference_eval_metrics Delta (matches train/inference config)."""
+    if INVERSE_PROPENSITY_WEIGHTING:
+        return "ipw"
+    if INFERENCE_IMPUTE_LEAKAGE_COLS:
+        return "mean_imputed"
+    return "nullify"
+
+
 def validate_pipeline_config() -> None:
     """Fail fast on incompatible position-bias / training settings."""
     if INVERSE_PROPENSITY_WEIGHTING and INFERENCE_IMPUTE_LEAKAGE_COLS:

@@ -15,6 +15,7 @@ from data.constants import (
     full_df_start_date,
     full_df_table,
     holdout_period,
+    inference_eval_metrics_table,
     inferences_table,
     schema,
     train_df_table,
@@ -262,6 +263,20 @@ def save_inferences_spark(scored_df) -> None:
         .mode("append")
         .option("mergeSchema", "true")
         .saveAsTable(f"{schema}.{inferences_table}")
+    )
+
+
+def save_holdout_ranking_metrics(rows: list[dict]) -> None:
+    if not rows:
+        return
+    (
+        get_spark()
+        .createDataFrame(rows)
+        .withColumn("inserted_ts", F.current_timestamp())
+        .write.format("delta")
+        .mode("append")
+        .option("mergeSchema", "true")
+        .saveAsTable(f"{schema}.{inference_eval_metrics_table}")
     )
 
 
