@@ -12,9 +12,11 @@ from features import training_feature_columns
 from ipw import add_inverse_propensity_weights
 from data.constants import (
     contest_history_lookback_days,
-    full_df_start_date,
+    full_df_for_inference_table,
+    full_df_for_training_table,
     full_df_table,
     holdout_period,
+    training_data_end_date,
     inference_eval_metrics_table,
     inferences_table,
     schema,
@@ -34,7 +36,13 @@ WHERE final_similarity_score IS NOT NULL
 
 
 def _split_boundaries(max_event_date: date) -> tuple[date, date]:
-    """Return (validation_start, holdout_start) for temporal train | validation | holdout."""
+    """
+    Return (validation_start, holdout_start) on the training full_df timeline.
+
+    - Holdout: last ``holdout_period`` days through ``max_event_date`` (inclusive).
+    - Validation: ``validation_days`` immediately before holdout.
+    - Train: ``event_date`` strictly before validation_start.
+    """
     holdout_start = max_event_date - timedelta(days=holdout_period - 1)
     validation_start = holdout_start - timedelta(days=validation_days)
     return validation_start, holdout_start
@@ -104,7 +112,7 @@ def _validation_frame(full: DataFrame, validation_start: date, holdout_start: da
 def run_sql_script(sql_path: str | Path) -> None:
     spark = get_spark()
     body = Path(sql_path).read_text(encoding="utf-8").format(
-        full_df_start_date=full_df_start_date,
+        training_data_end_date=training_data_end_date,
         training_lookback_window=training_lookback_window,
         contest_history_lookback_days=contest_history_lookback_days,
     )
@@ -114,7 +122,7 @@ def run_sql_script(sql_path: str | Path) -> None:
             spark.sql(stmt)
 
 
-def save_full_df() -> None:
+def save_full_df_for_training() -> None:
     (
         get_spark()
         .sql(FINAL_QUERY)
@@ -122,7 +130,24 @@ def save_full_df() -> None:
         .write.format("delta")
         .mode("overwrite")
         .option("overwriteSchema", "true")
-        .saveAsTable(f"{schema}.{full_df_table}")
+        .saveAsTable(f"{schema}.{full_df_for_training_table}")
+    )
+
+
+def save_full_df() -> None:
+    """Alias for training table write (backward compatible)."""
+    save_full_df_for_training()
+
+
+def save_full_df_for_inference() -> None:
+    (
+        get_spark()
+        .sql(FINAL_QUERY)
+        .withColumn("inserted_ts", F.current_timestamp())
+        .write.format("delta")
+        .mode("overwrite")
+        .option("overwriteSchema", "true")
+        .saveAsTable(f"{schema}.{full_df_for_inference_table}")
     )
 
 
@@ -340,15 +365,8 @@ def save_inferences(scored_df: pd.DataFrame) -> None:
     )
 
 
-if __name__ == "__main__":
-    import argparse
-
-    default_sql = Path(__file__).resolve().parent / "data" / "training_data.sql"
-    parser = argparse.ArgumentParser(description="Build full_df from feature SQL and write Delta")
-    parser.add_argument("--sql", type=Path, default=default_sql, help="Path to training_data.sql")
-    args, _ = parser.parse_known_args()
-
-    run_sql_script(args.sql)
-    save_full_df()
-    row_count = get_spark().table(f"{schema}.{full_df_table}").count()
-    print(f"Wrote {row_count:,} rows to {schema}.{full_df_table}")
+def load_inference_spark_df() -> DataFrame:
+    """Today's feature rows from the daily inference Delta table."""
+    full = get_spark().table(f"{schema}.{full_df_for_inference_table}")
+    columns = [c for c in full.columns if c != "inserted_ts"]
+    return full.select(columns)

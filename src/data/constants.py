@@ -1,9 +1,11 @@
 """Shared data pipeline constants."""
 
-full_df_start_date = "2026-07-22"
+# Training full_df: event_date in [dateadd(-training_lookback_window, end), end) — end is exclusive.
+# Spark SQL expression (e.g. current_date() or DATE '2026-03-01' for backfills).
+training_data_end_date = "current_date()"
 training_lookback_window = 61
-holdout_period = 7
-validation_days = 7  # calendar days immediately before holdout; used for tuning during train
+holdout_period = 7  # last N days of training full_df → holdout slice
+validation_days = 7  # N days immediately before holdout → validation slice; train is the remainder
 
 train_sample_fraction = 1.0  # used when spark_xgb_training=False (driver fit)
 train_max_rows = None  # cap rows before driver collect on shared clusters
@@ -26,7 +28,10 @@ xgb_auto_scale_pos_weight = True  # Spark/driver: weight negatives for imbalance
 
 schema = "sandbox.group_data_science"
 
-full_df_table = "cas_search_reranking_full_df"
+full_df_for_training_table = "cas_search_reranking_full_df_for_training"
+full_df_for_inference_table = "cas_search_reranking_full_df_for_inference"
+# Train / validation / holdout loaders read the training snapshot table.
+full_df_table = full_df_for_training_table
 train_df_table = "cas_search_reranking_train_df"
 validation_df_table = "cas_search_reranking_validation_df"
 inferences_table = "cas_search_reranking_xgboost_inferences"

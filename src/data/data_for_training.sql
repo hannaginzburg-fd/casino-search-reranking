@@ -1,3 +1,5 @@
+-- Training full_df: event_date in [dateadd(-training_lookback_window, training_data_end_date), training_data_end_date).
+-- Default end = current_date() (today excluded). Holdout / validation slices are derived in load_data.py.
 CREATE OR REPLACE TEMP VIEW viewed_games AS
 SELECT
   app_id,
@@ -39,7 +41,8 @@ LATERAL VIEW explode(
     )
   )
 ) t AS exploded_col
-WHERE a.collector_tstamp >= '{full_df_start_date}'
+WHERE a.collector_tstamp_date >= dateadd(DAY, -{training_lookback_window}, {training_data_end_date})
+  AND a.collector_tstamp_date < {training_data_end_date}
   AND event_category = 'search'
   AND event_name = 'search_results_returned'
   AND a.fanduel_user_id IS NOT NULL
@@ -89,7 +92,8 @@ LATERAL VIEW explode(
     )
   )
 ) t AS exploded_col
-WHERE a.collector_tstamp >= '{full_df_start_date}'
+WHERE a.collector_tstamp_date >= dateadd(DAY, -{training_lookback_window}, {training_data_end_date})
+  AND a.collector_tstamp_date < {training_data_end_date}
   AND event_category = 'search'
   AND event_name = 'search_results_scrolled'
   AND a.fanduel_user_id IS NOT NULL
@@ -139,7 +143,8 @@ LATERAL VIEW explode(
     )
   )
 ) t AS exploded_col
-WHERE a.collector_tstamp >= '{full_df_start_date}'
+WHERE a.collector_tstamp_date >= dateadd(DAY, -{training_lookback_window}, {training_data_end_date})
+  AND a.collector_tstamp_date < {training_data_end_date}
   AND event_category = 'search'
   AND event_name = 'search_results_selected'
   AND a.fanduel_user_id IS NOT NULL
@@ -210,7 +215,8 @@ WITH daily_stats AS (
     sum(gross_gaming_revenue) AS daily_ggr,
     sum(net_gaming_revenue) AS daily_ngr
   FROM core_views.casino.gameplay_contests
-  WHERE contest_date >= current_date() - {contest_history_lookback_days}
+  WHERE contest_date >= dateadd(DAY, -{contest_history_lookback_days}, {training_data_end_date})
+    AND contest_date < {training_data_end_date}
     AND NOT is_test_account
     AND number_of_bets > 0
   GROUP BY 1, 2, 3
@@ -268,7 +274,7 @@ WITH t1 AS (
 SELECT
   a.game_uid,
   a.state_code AS state,
-  greatest(date_diff(day, a.release_date, current_date()), 0) AS recency,
+  greatest(date_diff(day, a.release_date, {training_data_end_date}), 0) AS recency,
   a.game_studio_id,
   a.game_class,
   a.game_super_class,
@@ -292,7 +298,8 @@ WITH daily AS (
     sum(bet_amount) AS bet_amount,
     sum(number_of_bets) AS number_of_bets
   FROM core_views.casino.gameplay_contests
-  WHERE contest_date >= dateadd(DAY, -{contest_history_lookback_days}, current_date())
+  WHERE contest_date >= dateadd(DAY, -{contest_history_lookback_days}, {training_data_end_date})
+    AND contest_date < {training_data_end_date}
     AND NOT is_test_account
     AND number_of_bets > 0
   GROUP BY ALL
@@ -405,7 +412,8 @@ daily AS (
     sum(bet_amount) AS total_bet_amount,
     sum(number_of_bets) AS total_number_of_bets
   FROM core_views.casino.gameplay_contests
-  WHERE contest_date >= dateadd(DAY, -{contest_history_lookback_days}, current_date())
+  WHERE contest_date >= dateadd(DAY, -{contest_history_lookback_days}, {training_data_end_date})
+    AND contest_date < {training_data_end_date}
     AND NOT is_test_account
     AND number_of_bets > 0
   GROUP BY ALL
@@ -582,5 +590,6 @@ LEFT JOIN clicked_games click
   AND a.app_id = click.app_id
   AND a.game_id = click.game_id
   AND a.search_keyword = click.search_keyword
-WHERE a.event_date >= dateadd(DAY, -{training_lookback_window}, current_date())
+WHERE a.event_date >= dateadd(DAY, -{training_lookback_window}, {training_data_end_date})
+  AND a.event_date < {training_data_end_date}
 GROUP BY ALL;

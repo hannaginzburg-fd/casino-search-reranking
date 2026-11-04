@@ -5,38 +5,60 @@ Spark XGBoost reranker for casino search: build **`full_df`** from Databricks fe
 ## Layout
 
 ```
-src/data/training_data.sql   # Feature pipeline → temp view base_features
-src/data/constants.py        # Pipeline date / lookback constants
-src/data/config.py           # Column rules
-src/load_data.py             # Spark SQL → full_df Delta (step 1)
-src/features.py              # Feature column list for artifacts
-src/train.py                 # SparkXGBClassifier (step 2)
-src/inference.py             # Holdout scoring (step 3)
-notebooks/load_data.ipynb
+src/data/data_for_training.sql    # Historical feature pipeline → base_features (train/val/holdout)
+src/data/data_for_inference.sql   # Same features; event_date = current_date() only
+src/data/constants.py             # Pipeline date / lookback constants
+src/data/config.py                # Column rules
+src/load_data.py                  # Shared Delta loaders / train-holdout splits
+src/load_data_for_training.py     # SQL → cas_search_reranking_full_df_for_training
+src/load_data_for_inference.py    # SQL → cas_search_reranking_full_df_for_inference (daily)
+src/features.py                   # Feature column list for artifacts
+src/train.py                      # SparkXGBClassifier (step 2)
+src/inference.py                  # Holdout scoring (step 3)
+notebooks/load_data_for_training.ipynb
+notebooks/load_data_for_inference.ipynb
 notebooks/train.ipynb
 notebooks/inference.ipynb
 ```
+
+## Delta tables
+
+| Table | Purpose |
+|-------|---------|
+| **`sandbox.group_data_science.cas_search_reranking_full_df_for_training`** | Multi-day history for train / validation / holdout |
+| **`sandbox.group_data_science.cas_search_reranking_full_df_for_inference`** | Today’s search impressions + features for production scoring |
 
 ## Column rules
 
 | Stage | Behavior |
 |-------|----------|
-| **`full_df`** | All columns from `base_features` where `final_similarity_score IS NOT NULL` |
+| **Training full_df** | `event_date` in **`[end − training_lookback_window, end)`** with **`training_data_end_date`** (default `current_date()`, so **today excluded**); rows need `final_similarity_score IS NOT NULL` |
+| **Holdout / validation** | From that table: **last 7 days** = holdout; **prior 7 days** = validation; earlier = train (`holdout_period`, `validation_days`) |
 | **Training** | `event_date` before validation window; optional **`share_df_summaries`** EDA → `artifacts/training_summaries/<split>/` (`share_df_summaries_splits`: train, validation, holdout) |
 | **Validation** | **`validation_days`** immediately before holdout — **`cas_search_reranking_validation_df`** |
 | **Training (IPW)** | If **`INVERSE_PROPENSITY_WEIGHTING`**: drop **`game_position`** from features; train with **`sample_weight = 1/P(position)`** (clipped); mutually exclusive with inference null/impute |
-| **Inference** | Standard score (no IPW weights); with IPW, no null/impute on leakage cols; logged cols unchanged in Delta |
+| **Inference (eval job)** | Standard score (no IPW weights); with IPW, no null/impute on leakage cols; logged cols unchanged in Delta |
+| **Daily inference load** | Snowplow + `base_features` filtered to **`event_date = current_date()`**; rolling R1/R7/etc. still use **`contest_history_lookback_days`** |
 
 ## Pipeline (run in order)
 
+**Model training / offline eval:**
+
 ```bash
 cd src
-python load_data.py
+python load_data_for_training.py
 python train.py
 python inference.py
 ```
 
-**Databricks job:** `load_data.ipynb` → `train.ipynb` → `inference.ipynb`.
+**Daily feature refresh for serving:**
+
+```bash
+cd src
+python load_data_for_inference.py
+```
+
+**Databricks jobs:** `load_data_for_training.ipynb` → `train.ipynb` → `inference.ipynb` for offline pipeline; schedule `load_data_for_inference.ipynb` for daily features.
 
 **Dependent library (train + inference):** attach PyPI **`xgboost==3.1.1`** on the job cluster. You do not need `%pip install` in the notebooks if the library is on the cluster. Use `%pip` only for interactive runs without job libraries.
 
