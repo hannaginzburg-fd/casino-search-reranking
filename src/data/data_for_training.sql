@@ -1,12 +1,12 @@
--- Training full_df: event_date in [dateadd(-training_lookback_window, training_data_end_date), training_data_end_date).
--- Default end = current_date() (today excluded). Holdout / validation slices are derived in load_data.py.
+-- Training full_df: event_date in [dateadd(-training_lookback_window, end), end) — end exclusive, Pacific calendar.
+-- Snowplow stays UTC at source; event_date = Pacific calendar day from collector_tstamp to match contest_date.
 CREATE OR REPLACE TEMP VIEW viewed_games AS
 SELECT
   app_id,
   a.fanduel_user_id,
   event_id,
   payload.event_entities.contexts_com_fanduel_casino_global_properties_1[0].jurisdiction AS state,
-  collector_tstamp_date AS event_date,
+  DATE(from_utc_timestamp(a.collector_tstamp, '{gameplay_contest_timezone}')) AS event_date,
   payload.sp_analytics_entities.contexts_com_snowplowanalytics_snowplow_client_session_1.session_id[0] AS session_id,
   payload.event.search_keyword AS search_keyword,
   exploded_col.game_id AS game_id,
@@ -41,8 +41,10 @@ LATERAL VIEW explode(
     )
   )
 ) t AS exploded_col
-WHERE a.collector_tstamp_date >= dateadd(DAY, -{training_lookback_window}, {training_data_end_date})
-  AND a.collector_tstamp_date < {training_data_end_date}
+WHERE DATE(from_utc_timestamp(a.collector_tstamp, '{gameplay_contest_timezone}')) >= dateadd(
+    DAY, -{training_lookback_window}, {training_data_end_date}
+  )
+  AND DATE(from_utc_timestamp(a.collector_tstamp, '{gameplay_contest_timezone}')) < {training_data_end_date}
   AND event_category = 'search'
   AND event_name = 'search_results_returned'
   AND a.fanduel_user_id IS NOT NULL
@@ -57,7 +59,7 @@ SELECT
   a.fanduel_user_id,
   event_id,
   payload.event_entities.contexts_com_fanduel_casino_global_properties_1[0].jurisdiction AS state,
-  collector_tstamp_date AS event_date,
+  DATE(from_utc_timestamp(a.collector_tstamp, '{gameplay_contest_timezone}')) AS event_date,
   payload.sp_analytics_entities.contexts_com_snowplowanalytics_snowplow_client_session_1.session_id[0] AS session_id,
   payload.event.search_keyword AS search_keyword,
   exploded_col.game_id AS game_id,
@@ -92,8 +94,10 @@ LATERAL VIEW explode(
     )
   )
 ) t AS exploded_col
-WHERE a.collector_tstamp_date >= dateadd(DAY, -{training_lookback_window}, {training_data_end_date})
-  AND a.collector_tstamp_date < {training_data_end_date}
+WHERE DATE(from_utc_timestamp(a.collector_tstamp, '{gameplay_contest_timezone}')) >= dateadd(
+    DAY, -{training_lookback_window}, {training_data_end_date}
+  )
+  AND DATE(from_utc_timestamp(a.collector_tstamp, '{gameplay_contest_timezone}')) < {training_data_end_date}
   AND event_category = 'search'
   AND event_name = 'search_results_scrolled'
   AND a.fanduel_user_id IS NOT NULL
@@ -108,7 +112,7 @@ SELECT
   a.fanduel_user_id,
   event_id,
   payload.event_entities.contexts_com_fanduel_casino_global_properties_1[0].jurisdiction AS state,
-  collector_tstamp_date AS event_date,
+  DATE(from_utc_timestamp(a.collector_tstamp, '{gameplay_contest_timezone}')) AS event_date,
   payload.sp_analytics_entities.contexts_com_snowplowanalytics_snowplow_client_session_1.session_id[0] AS session_id,
   payload.event.search_keyword AS search_keyword,
   exploded_col.game_id AS game_id,
@@ -143,8 +147,10 @@ LATERAL VIEW explode(
     )
   )
 ) t AS exploded_col
-WHERE a.collector_tstamp_date >= dateadd(DAY, -{training_lookback_window}, {training_data_end_date})
-  AND a.collector_tstamp_date < {training_data_end_date}
+WHERE DATE(from_utc_timestamp(a.collector_tstamp, '{gameplay_contest_timezone}')) >= dateadd(
+    DAY, -{training_lookback_window}, {training_data_end_date}
+  )
+  AND DATE(from_utc_timestamp(a.collector_tstamp, '{gameplay_contest_timezone}')) < {training_data_end_date}
   AND event_category = 'search'
   AND event_name = 'search_results_selected'
   AND a.fanduel_user_id IS NOT NULL
@@ -565,7 +571,7 @@ SELECT
 FROM new_agg_events a
 LEFT JOIN models.unified_search.casino_games_search_score_capture_prd_deduped b
   ON a.fanduel_user_id = b.fanduel_user_id
-  AND a.event_date = b.event_date
+  AND a.event_date = DATE(from_utc_timestamp(b.collector_tstamp, '{gameplay_contest_timezone}'))
   AND lower(trim(a.search_keyword)) = lower(trim(b.query))
   AND a.game_id = b.game_uid
 LEFT JOIN user_game_feats ug

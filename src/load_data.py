@@ -111,10 +111,13 @@ def _validation_frame(full: DataFrame, validation_start: date, holdout_start: da
 
 def run_sql_script(sql_path: str | Path) -> None:
     spark = get_spark()
+    from data.constants import gameplay_contest_timezone
+
     body = Path(sql_path).read_text(encoding="utf-8").format(
         training_data_end_date=training_data_end_date,
         training_lookback_window=training_lookback_window,
         contest_history_lookback_days=contest_history_lookback_days,
+        gameplay_contest_timezone=gameplay_contest_timezone,
     )
     for statement in body.split(";"):
         stmt = statement.strip()

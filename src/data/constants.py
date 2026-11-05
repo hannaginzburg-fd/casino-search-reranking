@@ -1,8 +1,13 @@
 """Shared data pipeline constants."""
 
 # Training full_df: event_date in [dateadd(-training_lookback_window, end), end) — end is exclusive.
-# Spark SQL expression (e.g. current_date() or DATE '2026-03-01' for backfills).
-training_data_end_date = "current_date()"
+# gameplay_contests.contest_date is a US Pacific calendar day. Snowplow collector_tstamp is UTC.
+# SQL derives event_date by converting UTC → Pacific so search rows join contest features on the same day.
+gameplay_contest_timezone = "America/Los_Angeles"
+# Exclusive upper bound on that Pacific calendar (today when the job runs). Backfill: DATE 'YYYY-MM-DD'.
+training_data_end_date = (
+    f"DATE(from_utc_timestamp(current_timestamp(), '{gameplay_contest_timezone}'))"
+)
 training_lookback_window = 61
 holdout_period = 7  # last N days of training full_df → holdout slice
 validation_days = 7  # N days immediately before holdout → validation slice; train is the remainder
