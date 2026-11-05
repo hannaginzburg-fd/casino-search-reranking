@@ -14,11 +14,11 @@ src/load_data_for_training.py     # SQL → cas_search_reranking_full_df_for_tra
 src/load_data_for_inference.py    # SQL → cas_search_reranking_full_df_for_inference (daily)
 src/features.py                   # Feature column list for artifacts
 src/train.py                      # SparkXGBClassifier (step 2)
-src/inference.py                  # Holdout scoring (step 3)
+src/evaluation.py                 # Holdout scoring + eval metrics (step 3)
 notebooks/load_data_for_training.ipynb
 notebooks/load_data_for_inference.ipynb
 notebooks/train.ipynb
-notebooks/inference.ipynb
+notebooks/evaluation.ipynb
 ```
 
 ## Delta tables
@@ -48,7 +48,7 @@ notebooks/inference.ipynb
 cd src
 python load_data_for_training.py
 python train.py
-python inference.py
+python evaluation.py
 ```
 
 **Daily feature refresh for serving:**
@@ -58,7 +58,7 @@ cd src
 python load_data_for_inference.py
 ```
 
-**Databricks jobs:** `load_data_for_training.ipynb` → `train.ipynb` → `inference.ipynb` for offline pipeline; schedule `load_data_for_inference.ipynb` for daily features.
+**Databricks jobs:** `load_data_for_training.ipynb` → `train.ipynb` → `evaluation.ipynb` for offline pipeline; schedule `load_data_for_inference.ipynb` for daily features.
 
 **Dependent library (train + inference):** attach PyPI **`xgboost==3.1.1`** on the job cluster. You do not need `%pip install` in the notebooks if the library is on the cluster. Use `%pip` only for interactive runs without job libraries.
 

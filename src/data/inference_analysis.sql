@@ -1,4 +1,4 @@
--- Holdout inference eval (run after inference.py).
+-- Holdout inference eval (run after evaluation.py).
 -- Source: sandbox.group_data_science.cas_search_reranking_xgboost_inferences (append-only; use latest inserted_ts)
 
 CREATE OR REPLACE TEMP VIEW inference_latest AS
