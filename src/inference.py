@@ -17,7 +17,8 @@ from data.config import (
     XGB_PROBABILITY_COL,
     validate_pipeline_config,
 )
-from data.constants import driver_model_dbfs_path, inferences_table, schema, spark_xgb_training
+from data.config import driver_model_dbfs_path
+from data.constants import inferences_table, schema, spark_xgb_training
 from features import assert_frame_has_columns, load_feature_columns, prepare_inference_features
 from inference_leakage import apply_leakage_fill_for_scoring, compute_leakage_imputation_values
 from load_data import load_holdout_spark_df, save_inferences_spark

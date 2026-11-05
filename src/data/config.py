@@ -1,5 +1,60 @@
-"""Training and inference column rules."""
+"""Pipeline config — XGB hyperparameters at top; feature & column rules below."""
 
+# ---------------------------------------------------------------------------
+# XGBoost — shared tree hyperparameters (SparkXGBClassifier + XGBClassifier)
+# ---------------------------------------------------------------------------
+xgb_objective = "binary:logistic"
+xgb_eval_metric = "logloss"
+xgb_max_depth = 8
+xgb_learning_rate = 0.05
+xgb_n_estimators = 500
+xgb_early_stopping_rounds = 30  # temporal validation; Spark + driver fit()
+xgb_subsample = 0.8
+xgb_colsample_bytree = 0.8
+xgb_min_child_weight = 1
+xgb_reg_alpha = 0.0
+xgb_reg_lambda = 1.0
+xgb_train_random_state = 42
+xgb_auto_scale_pos_weight = True  # set scale_pos_weight = neg/pos on train click rate
+
+# ---------------------------------------------------------------------------
+# XGBoost — driver-only (xgboost.XGBClassifier)
+# ---------------------------------------------------------------------------
+xgb_tree_method = "hist"
+xgb_enable_categorical = True
+xgb_driver_fit_verbose = False
+
+# ---------------------------------------------------------------------------
+# XGBoost — Spark-only (SparkXGBClassifier)
+# ---------------------------------------------------------------------------
+xgb_num_workers = None  # None = auto-cap to cluster task slots at train time
+xgb_barrier_mode = True
+xgb_spark_verbosity = 0
+xgb_spark_use_gpu = False
+xgb_spark_force_repartition = True
+
+# ---------------------------------------------------------------------------
+# IPW (position-bias row weights on train loss)
+# ---------------------------------------------------------------------------
+ipw_weight_clip_max = 100.0
+
+# ---------------------------------------------------------------------------
+# Model artifacts
+# ---------------------------------------------------------------------------
+DEFAULT_SPARK_MODEL_PATH = "artifacts/xgb_spark_pipeline"
+DEFAULT_DRIVER_MODEL_PATH = "artifacts/xgb_model.json"
+DEFAULT_FEATURE_LIST_PATH = "artifacts/feature_columns.json"
+DEFAULT_TRAINING_LOSS_PLOT_PATH = "artifacts/training_logloss.png"
+driver_model_dbfs_path = "/dbfs/FileStore/cas_search_reranking/xgb_model.json"
+
+# Spark ML / XGB stage column names
+XGB_PREDICTION_COL = "click_pred"
+XGB_PROBABILITY_COL = "click_proba_vector"
+XGB_VALIDATION_INDICATOR_COL = "_is_validation"
+
+# ---------------------------------------------------------------------------
+# Data pipeline constants (tables, date windows, …)
+# ---------------------------------------------------------------------------
 from data.constants import *  # noqa: F403
 
 LABEL_COLUMN = "label"
@@ -59,6 +114,7 @@ INFERENCE_NULL_COLUMNS = list(SCORE_OR_RANK_LEAKAGE_COLS)
 # True: mean/mode imputation on scoring copy. Must be False when INVERSE_PROPENSITY_WEIGHTING is True.
 INFERENCE_IMPUTE_LEAKAGE_COLS = False
 
+
 def model_position_debias_strategy() -> str:
     """Label for inference_eval_metrics Delta (matches train/inference config)."""
     if INVERSE_PROPENSITY_WEIGHTING:
@@ -98,14 +154,3 @@ INFERENCE_DELTA_CASTS = {
     "click_proba": "double",
     "final_similarity_score": "double",
 }
-
-DEFAULT_SPARK_MODEL_PATH = "artifacts/xgb_spark_pipeline"
-DEFAULT_DRIVER_MODEL_PATH = "artifacts/xgb_model.json"
-DEFAULT_FEATURE_LIST_PATH = "artifacts/feature_columns.json"
-DEFAULT_TRAINING_LOSS_PLOT_PATH = "artifacts/training_logloss.png"
-
-XGB_PREDICTION_COL = "click_pred"
-XGB_PROBABILITY_COL = "click_proba_vector"
-
-# SparkXGBClassifier early stopping (boolean: True = validation rows, False = train)
-XGB_VALIDATION_INDICATOR_COL = "_is_validation"

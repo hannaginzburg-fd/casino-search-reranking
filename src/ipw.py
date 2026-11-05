@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pyspark.sql import DataFrame, functions as F
 
-from data.constants import ipw_weight_clip_max
+from data.config import ipw_weight_clip_max
 
 
 def add_inverse_propensity_weights(

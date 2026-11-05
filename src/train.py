@@ -28,22 +28,35 @@ from data.config import (
     XGB_PREDICTION_COL,
     XGB_PROBABILITY_COL,
     XGB_VALIDATION_INDICATOR_COL,
+    driver_model_dbfs_path,
     share_df_summaries,
     share_df_summaries_splits,
     validate_pipeline_config,
-)
-from data.constants import sample_weight_col
-from artifact_utils import reset_artifacts_dir
-from df_summaries import run_dataset_summaries, write_summaries_root_index
-from data.constants import (
-    driver_model_dbfs_path,
-    spark_xgb_training,
-    xgb_barrier_mode,
     xgb_auto_scale_pos_weight,
+    xgb_barrier_mode,
+    xgb_colsample_bytree,
+    xgb_driver_fit_verbose,
     xgb_early_stopping_rounds,
+    xgb_enable_categorical,
+    xgb_eval_metric,
+    xgb_learning_rate,
+    xgb_max_depth,
+    xgb_min_child_weight,
     xgb_n_estimators,
     xgb_num_workers,
+    xgb_objective,
+    xgb_reg_alpha,
+    xgb_reg_lambda,
+    xgb_spark_force_repartition,
+    xgb_spark_use_gpu,
+    xgb_spark_verbosity,
+    xgb_subsample,
+    xgb_train_random_state,
+    xgb_tree_method,
 )
+from data.constants import sample_weight_col, spark_xgb_training
+from artifact_utils import reset_artifacts_dir
+from df_summaries import run_dataset_summaries, write_summaries_root_index
 from features import (
     assert_frame_has_columns,
     save_feature_columns,
@@ -261,7 +274,12 @@ def _prep_spark_features(sdf, feature_cols):
     return sdf, prep_stages
 
 
-def train_spark(*, model_path: Path, feature_list_path: Path, random_state: int = 42) -> dict[str, float]:
+def train_spark(
+    *,
+    model_path: Path,
+    feature_list_path: Path,
+    random_state: int = xgb_train_random_state,
+) -> dict[str, float]:
     train_sdf = load_train_spark_df()
     val_sdf = load_validation_spark_df()
     feature_cols = training_feature_columns(list(train_sdf.columns))
@@ -313,18 +331,21 @@ def train_spark(*, model_path: Path, feature_list_path: Path, random_state: int 
         "probability_col": XGB_PROBABILITY_COL,
         "validation_indicator_col": XGB_VALIDATION_INDICATOR_COL,
         "num_workers": num_workers,
-        "force_repartition": True,
-        "use_gpu": False,
+        "force_repartition": xgb_spark_force_repartition,
+        "use_gpu": xgb_spark_use_gpu,
         "barrier_mode": xgb_barrier_mode,
-        "eval_metric": "logloss",
+        "eval_metric": xgb_eval_metric,
         "random_state": random_state,
-        "verbosity": 0,
-        "max_depth": 8,
-        "learning_rate": 0.05,
+        "verbosity": xgb_spark_verbosity,
+        "max_depth": xgb_max_depth,
+        "learning_rate": xgb_learning_rate,
         "n_estimators": xgb_n_estimators,
         "early_stopping_rounds": xgb_early_stopping_rounds,
-        "subsample": 0.8,
-        "colsample_bytree": 0.8,
+        "subsample": xgb_subsample,
+        "colsample_bytree": xgb_colsample_bytree,
+        "min_child_weight": xgb_min_child_weight,
+        "reg_alpha": xgb_reg_alpha,
+        "reg_lambda": xgb_reg_lambda,
     }
     if scale_pos_weight is not None:
         xgb_kwargs["scale_pos_weight"] = scale_pos_weight
@@ -357,7 +378,12 @@ def train_spark(*, model_path: Path, feature_list_path: Path, random_state: int 
     return {"val_auc": float(val_auc), "train_rows": train_rows, "val_rows": val_rows}
 
 
-def train_driver(*, model_path: Path, feature_list_path: Path, random_state: int = 42) -> dict[str, float]:
+def train_driver(
+    *,
+    model_path: Path,
+    feature_list_path: Path,
+    random_state: int = xgb_train_random_state,
+) -> dict[str, float]:
     train_pdf = load_train_df_table()
     val_pdf = load_validation_df_table()
     X_train, y_train, feature_cols = training_matrix(train_pdf)
@@ -382,16 +408,19 @@ def train_driver(*, model_path: Path, feature_list_path: Path, random_state: int
                 frame[col] = frame[col].astype("category")
 
     driver_xgb_kwargs: dict = {
-        "objective": "binary:logistic",
-        "eval_metric": "logloss",
-        "max_depth": 8,
-        "learning_rate": 0.05,
+        "objective": xgb_objective,
+        "eval_metric": xgb_eval_metric,
+        "max_depth": xgb_max_depth,
+        "learning_rate": xgb_learning_rate,
         "n_estimators": xgb_n_estimators,
-        "subsample": 0.8,
-        "colsample_bytree": 0.8,
+        "subsample": xgb_subsample,
+        "colsample_bytree": xgb_colsample_bytree,
         "random_state": random_state,
-        "enable_categorical": True,
-        "tree_method": "hist",
+        "enable_categorical": xgb_enable_categorical,
+        "tree_method": xgb_tree_method,
+        "min_child_weight": xgb_min_child_weight,
+        "reg_alpha": xgb_reg_alpha,
+        "reg_lambda": xgb_reg_lambda,
     }
     if xgb_auto_scale_pos_weight:
         pos = int(y_train.sum())
@@ -412,7 +441,7 @@ def train_driver(*, model_path: Path, feature_list_path: Path, random_state: int
         sample_weight=train_weight,
         eval_set=[(X_val, y_val)],
         early_stopping_rounds=xgb_early_stopping_rounds,
-        verbose=False,
+        verbose=xgb_driver_fit_verbose,
     )
     val_auc = roc_auc_score(y_val, model.predict_proba(X_val)[:, 1])
 

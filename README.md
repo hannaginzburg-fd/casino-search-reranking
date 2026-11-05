@@ -66,7 +66,7 @@ Training uses **`SparkXGBClassifier`** on workers (`barrier_mode=True`, `num_wor
 
 Model artifact: **`artifacts/xgb_spark_pipeline/`** (Spark ML Pipeline: encoders + XGBoost). Scores: **`cas_search_reranking_xgboost_inferences`** Delta table (**append** per run; **`inserted_ts`** = write time). Eval SQL: **`src/data/inference_analysis.sql`** (filter latest run with `inserted_ts` if needed).
 
-Optional: tune **`train_sample_fraction`** / **`train_max_rows`** in `constants.py` to shrink the Spark training set.
+Optional: tune XGB hyperparameters at the top of **`src/data/config.py`**. Cluster/runtime flags (`spark_xgb_training`, `train_max_rows`, …) live in **`constants.py`**.
 
 **Cluster:** **8 × rgd-fleet.xlarge** works for load + Spark XGBoost. Use default or **`8g`** for `spark.driver.maxResultSize`.
 
