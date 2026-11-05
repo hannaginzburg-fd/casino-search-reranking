@@ -87,7 +87,6 @@ _EXCLUDE_BASE = [
     "game_id",
     "event_date",
     "search_keyword",
-    "base_similarity_score",
     "final_similarity_score",
     "inserted_ts",
     sample_weight_col,
