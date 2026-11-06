@@ -65,8 +65,11 @@ LABEL_COLUMN = "label"
 # 3) IPW weighting - inversely weight each labeled row in *training*; inference unchanged
 
 # Position-bias IPW: drop position from features, row-weight train loss; no inference leakage handling.
-INVERSE_PROPENSITY_WEIGHTING = True
+INVERSE_PROPENSITY_WEIGHTING = False
 IPW_POSITION_COLUMN = "game_position"
+
+# True: mean/mode imputation on scoring copy. Must be False when INVERSE_PROPENSITY_WEIGHTING is True.
+INFERENCE_IMPUTE_LEAKAGE_COLS = True
 
 # Before model fit: EDA charts under artifacts/training_summaries/<split>/ (Spark aggregations; no driver sampling).
 share_df_summaries = False
@@ -132,9 +135,6 @@ EXCLUDE_FROM_TRAINING = training_feature_exclude()
 
 # Leakage columns adjusted on the scoring copy only (mutually exclusive with IPW).
 INFERENCE_NULL_COLUMNS = list(SCORE_OR_RANK_LEAKAGE_COLS)
-
-# True: mean/mode imputation on scoring copy. Must be False when INVERSE_PROPENSITY_WEIGHTING is True.
-INFERENCE_IMPUTE_LEAKAGE_COLS = False
 
 
 def model_position_debias_strategy() -> str:
