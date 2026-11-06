@@ -587,5 +587,6 @@ LEFT JOIN clicked_games click
   AND a.app_id = click.app_id
   AND a.game_id = click.game_id
   AND a.search_keyword = click.search_keyword
+  AND a.game_position = click.game_position
 WHERE a.event_date = {training_data_end_date}
 GROUP BY ALL;
