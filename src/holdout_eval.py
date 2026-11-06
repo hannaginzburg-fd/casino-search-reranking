@@ -145,16 +145,28 @@ def _holdout_eval_context(ranked: DataFrame) -> dict:
         )
         .first()
     )
+    total_clicks = int(row["total_clicks"] or 0)
+    total_views = int(row["total_views"] or 0)
+    total_searches_with_click = int(search_counts["total_searches_with_click"] or 0)
+    total_searches_viewed = int(search_counts["total_searches_viewed"] or 0)
+    event_level_ctr = float(total_clicks) / float(total_views) if total_views else 0.0
+    search_level_ctr = (
+        float(total_searches_with_click) / float(total_searches_viewed)
+        if total_searches_viewed
+        else 0.0
+    )
     return {
         "min_date": row["min_date"],
         "max_date": row["max_date"],
         "model_position_debias_strategy": model_position_debias_strategy(),
         "num_unique_games": int(row["num_unique_games"] or 0),
         "num_unique_users": int(row["num_unique_users"] or 0),
-        "total_clicks": int(row["total_clicks"] or 0),
-        "total_views": int(row["total_views"] or 0),
-        "total_searches_with_click": int(search_counts["total_searches_with_click"] or 0),
-        "total_searches_viewed": int(search_counts["total_searches_viewed"] or 0),
+        "total_clicks": total_clicks,
+        "total_views": total_views,
+        "total_searches_with_click": total_searches_with_click,
+        "total_searches_viewed": total_searches_viewed,
+        "event_level_ctr": event_level_ctr,
+        "search_level_ctr": search_level_ctr,
     }
 
 
@@ -178,6 +190,8 @@ def _metric_row(
         "total_views": context["total_views"],
         "total_searches_with_click": context["total_searches_with_click"],
         "total_searches_viewed": context["total_searches_viewed"],
+        "event_level_ctr": context["event_level_ctr"],
+        "search_level_ctr": context["search_level_ctr"],
     }
 
 
@@ -271,6 +285,7 @@ def print_holdout_ranking_diagnostics(
         f"views={context['total_views']:,} clicks={context['total_clicks']:,} | "
         f"searches={context['total_searches_viewed']:,} "
         f"searches_with_click={context['total_searches_with_click']:,} | "
+        f"event_level_ctr={context['event_level_ctr']:.4f} search_level_ctr={context['search_level_ctr']:.4f} | "
         f"position debias strategy={context['model_position_debias_strategy']}"
     )
 

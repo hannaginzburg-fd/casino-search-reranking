@@ -323,9 +323,11 @@ INFERENCE_EVAL_METRICS_COLUMNS = [
     "num_unique_users",
     "total_clicks",
     "total_views",
+    "inserted_ts",
     "total_searches_with_click",
     "total_searches_viewed",
-    "inserted_ts",
+    "event_level_ctr",
+    "search_level_ctr",
 ]
 
 
