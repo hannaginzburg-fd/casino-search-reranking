@@ -109,6 +109,30 @@ def _validation_frame(full: DataFrame, validation_start: date, holdout_start: da
     ).select(*[c for c in cols if c in full.columns])
 
 
+def _strip_line_comment(line: str) -> str:
+    """Remove a SQL `--` line comment, but not `--` inside a single-quoted string."""
+    n = len(line)
+    i = 0
+    in_single_quote = False
+    while i < n:
+        ch = line[i]
+        if ch == "'":
+            if in_single_quote and i + 1 < n and line[i + 1] == "'":
+                i += 2
+                continue
+            in_single_quote = not in_single_quote
+            i += 1
+            continue
+        if not in_single_quote and i + 1 < n and line[i] == "-" and line[i + 1] == "-":
+            return line[:i].rstrip()
+        i += 1
+    return line
+
+
+def _strip_sql_line_comments(sql: str) -> str:
+    return "\n".join(_strip_line_comment(line) for line in sql.splitlines())
+
+
 def run_sql_script(sql_path: str | Path) -> None:
     spark = get_spark()
     from data.constants import gameplay_contest_timezone
@@ -119,6 +143,8 @@ def run_sql_script(sql_path: str | Path) -> None:
         contest_history_lookback_days=contest_history_lookback_days,
         gameplay_contest_timezone=gameplay_contest_timezone,
     )
+    # Semicolons inside `-- ...` comments must not terminate statements (naive split breaks).
+    body = _strip_sql_line_comments(body)
     for statement_index, statement in enumerate(body.split(";"), start=1):
         stmt = statement.strip()
         if not stmt:

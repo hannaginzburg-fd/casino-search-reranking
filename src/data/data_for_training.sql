@@ -1,5 +1,5 @@
 -- Training full_df: event_date in [dateadd(-training_lookback_window, end), end) — end exclusive, Pacific calendar.
--- Snowplow stays UTC at source; event_date = Pacific calendar day from collector_tstamp to match contest_date.
+-- Snowplow stays UTC at source. event_date = Pacific calendar day from collector_tstamp to match contest_date.
 CREATE OR REPLACE TEMP VIEW viewed_games AS
 SELECT
   app_id,

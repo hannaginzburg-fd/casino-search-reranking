@@ -1,4 +1,4 @@
--- Snowplow UTC → event_date on gameplay Pacific calendar; filter event_date = {training_data_end_date}.
+-- Snowplow UTC → event_date on gameplay Pacific calendar. Filter event_date = {training_data_end_date}.
 -- contest_date in gameplay_contests is already Pacific (no conversion on contest side).
 CREATE OR REPLACE TEMP VIEW viewed_games AS
 SELECT
