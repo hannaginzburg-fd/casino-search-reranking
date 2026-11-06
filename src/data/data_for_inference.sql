@@ -48,7 +48,17 @@ WHERE DATE(from_utc_timestamp(a.collector_tstamp, '{gameplay_contest_timezone}')
   AND payload.sp_analytics_entities.contexts_com_snowplowanalytics_snowplow_client_session_1.session_id[0] IS NOT NULL
   AND b.is_customer_account
   AND NOT b.is_test_account
-GROUP BY ALL;
+GROUP BY
+  app_id,
+  a.fanduel_user_id,
+  event_id,
+  state,
+  event_date,
+  session_id,
+  search_keyword,
+  game_id,
+  game_position,
+  game_element_version;
 
 CREATE OR REPLACE TEMP VIEW scrolled_games AS
 SELECT
@@ -98,7 +108,17 @@ WHERE DATE(from_utc_timestamp(a.collector_tstamp, '{gameplay_contest_timezone}')
   AND payload.sp_analytics_entities.contexts_com_snowplowanalytics_snowplow_client_session_1.session_id[0] IS NOT NULL
   AND b.is_customer_account
   AND NOT b.is_test_account
-GROUP BY ALL;
+GROUP BY
+  app_id,
+  a.fanduel_user_id,
+  event_id,
+  state,
+  event_date,
+  session_id,
+  search_keyword,
+  game_id,
+  game_position,
+  game_element_version;
 
 CREATE OR REPLACE TEMP VIEW clicked_games AS
 SELECT
@@ -148,7 +168,17 @@ WHERE DATE(from_utc_timestamp(a.collector_tstamp, '{gameplay_contest_timezone}')
   AND payload.sp_analytics_entities.contexts_com_snowplowanalytics_snowplow_client_session_1.session_id[0] IS NOT NULL
   AND b.is_customer_account
   AND NOT b.is_test_account
-GROUP BY ALL;
+GROUP BY
+  app_id,
+  a.fanduel_user_id,
+  event_id,
+  state,
+  event_date,
+  session_id,
+  search_keyword,
+  game_id,
+  game_position,
+  game_element_version;
 
 -- search_results_returned rows plus scroll-only game_ids (same user / session / app / keyword).
 CREATE OR REPLACE TEMP VIEW new_agg_events AS
@@ -199,7 +229,15 @@ FROM (
       AND v.search_keyword = s.search_keyword
   )
 ) combined
-GROUP BY ALL;
+GROUP BY
+  fanduel_user_id,
+  session_id,
+  game_id,
+  event_date,
+  search_keyword,
+  state,
+  app_id,
+  game_position;
 
 CREATE OR REPLACE TEMP VIEW game_popularity AS
 WITH daily_stats AS (
@@ -266,12 +304,12 @@ WITH t1 AS (
     max(inserted_ts) AS latest_ts
   FROM foundation_views.casino.prismic_games
   WHERE game_uid IS NOT NULL
-  GROUP BY ALL
+  GROUP BY game_uid, state_code
 )
 SELECT
   a.game_uid,
   a.state_code AS state,
-  greatest(date_diff(day, a.release_date, {training_data_end_date}), 0) AS recency,
+  greatest(datediff(day, a.release_date, {training_data_end_date}), 0) AS recency,
   a.game_studio_id,
   a.game_class,
   a.game_super_class,
@@ -283,7 +321,16 @@ INNER JOIN t1
   AND a.state_code = t1.state_code
   AND a.inserted_ts = t1.latest_ts
 WHERE a.game_uid IS NOT NULL
-GROUP BY ALL;
+GROUP BY
+  a.game_uid,
+  a.state_code,
+  a.release_date,
+  a.game_studio_id,
+  a.game_class,
+  a.game_super_class,
+  a.themes,
+  a.genres,
+  a.inserted_ts;
 
 CREATE OR REPLACE TEMP VIEW user_game_feats AS
 WITH daily AS (
@@ -299,7 +346,7 @@ WITH daily AS (
     AND contest_date <= {training_data_end_date}
     AND NOT is_test_account
     AND number_of_bets > 0
-  GROUP BY ALL
+  GROUP BY fanduel_user_id, game_id, contest_location_code, contest_date
 )
 SELECT
   fanduel_user_id,
@@ -399,7 +446,7 @@ WITH first_active AS (
   FROM core_views.casino.gameplay_contests
   WHERE NOT is_test_account
     AND number_of_bets > 0
-  GROUP BY ALL
+  GROUP BY fanduel_user_id, contest_location_code
 ),
 daily AS (
   SELECT
@@ -413,7 +460,7 @@ daily AS (
     AND contest_date <= {training_data_end_date}
     AND NOT is_test_account
     AND number_of_bets > 0
-  GROUP BY ALL
+  GROUP BY fanduel_user_id, contest_location_code, contest_date
 )
 SELECT
   d.fanduel_user_id,
@@ -589,4 +636,49 @@ LEFT JOIN clicked_games click
   AND a.search_keyword = click.search_keyword
   AND a.game_position = click.game_position
 WHERE a.event_date = {training_data_end_date}
-GROUP BY ALL;
+GROUP BY
+  a.fanduel_user_id,
+  a.session_id,
+  a.game_id,
+  a.event_date,
+  a.day_of_week,
+  a.week_of_year,
+  a.day_of_month,
+  a.month_of_year,
+  a.app_id,
+  a.game_position,
+  a.search_keyword,
+  b.base_score,
+  b.final_score,
+  ug.R1_bet_amount_user_game,
+  ug.R1_num_bets_user_game,
+  ug.R3_bet_amount_user_game,
+  ug.R3_num_bets_user_game,
+  ug.R7_bet_amount_user_game,
+  ug.R7_num_bets_user_game,
+  ug.R14_bet_amount_user_game,
+  ug.R14_num_bets_user_game,
+  ug.R30_bet_amount_user_game,
+  ug.R30_num_bets_user_game,
+  datediff(DAY, u.first_date_active, a.event_date),
+  datediff(DAY, u.latest_date_active, a.event_date),
+  CASE WHEN year(u.first_date_active) = year(a.event_date) THEN TRUE ELSE FALSE END,
+  u.R1_bet_amount_user,
+  u.R1_num_bets_user,
+  u.R3_bet_amount_user,
+  u.R3_num_bets_user,
+  u.R7_bet_amount_user,
+  u.R7_num_bets_user,
+  u.R14_bet_amount_user,
+  u.R14_num_bets_user,
+  u.R30_bet_amount_user,
+  u.R30_num_bets_user,
+  g.game_studio_id,
+  g.game_class,
+  g.game_super_class,
+  g.recency,
+  p.r30_popularity_rank_by_num_users,
+  p.r30_popularity_rank_by_bet_amt,
+  p.r30_popularity_rank_by_ggr,
+  p.r30_popularity_rank_by_ngr,
+  CASE WHEN click.fanduel_user_id IS NOT NULL THEN 1 ELSE 0 END;

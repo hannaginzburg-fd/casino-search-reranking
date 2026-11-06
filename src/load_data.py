@@ -119,10 +119,17 @@ def run_sql_script(sql_path: str | Path) -> None:
         contest_history_lookback_days=contest_history_lookback_days,
         gameplay_contest_timezone=gameplay_contest_timezone,
     )
-    for statement in body.split(";"):
+    for statement_index, statement in enumerate(body.split(";"), start=1):
         stmt = statement.strip()
-        if stmt:
+        if not stmt:
+            continue
+        try:
             spark.sql(stmt)
+        except Exception as e:
+            snippet = stmt if len(stmt) <= 500 else f"{stmt[:500]}...[truncated]"
+            raise RuntimeError(
+                f"SQL statement {statement_index} failed: {e}\n--- Statement snippet ---\n{snippet}"
+            ) from e
 
 
 def save_full_df_for_training() -> None:
