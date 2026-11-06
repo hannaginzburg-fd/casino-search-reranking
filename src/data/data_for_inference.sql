@@ -609,7 +609,7 @@ SELECT
 FROM new_agg_events a
 LEFT JOIN models.unified_search.casino_games_search_score_capture_prd_deduped b
   ON a.fanduel_user_id = b.fanduel_user_id
-  AND a.event_date = DATE(from_utc_timestamp(b.collector_tstamp, '{gameplay_contest_timezone}'))
+  AND a.event_date = CAST(b.event_date AS DATE)
   AND lower(trim(a.search_keyword)) = lower(trim(b.query))
   AND a.game_id = b.game_uid
 LEFT JOIN user_game_feats ug
