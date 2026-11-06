@@ -200,6 +200,8 @@ def _ranking_metrics_rows(
     *,
     avg_clicked_baseline: float | None,
     avg_clicked_reranked: float | None,
+    avg_of_min_clicked_baseline: float | None,
+    avg_of_min_clicked_reranked: float | None,
     context: dict,
 ) -> list[dict]:
     rows = [
@@ -228,6 +230,15 @@ def _ranking_metrics_rows(
                 f"recall@{k}",
                 summary[f"recall{k}_baseline"],
                 summary[f"recall{k}_rerank"],
+                context=context,
+            )
+        )
+    if avg_of_min_clicked_baseline is not None and avg_of_min_clicked_reranked is not None:
+        rows.append(
+            _metric_row(
+                "avg_of_min_clicked_game_position",
+                avg_of_min_clicked_baseline,
+                avg_of_min_clicked_reranked,
                 context=context,
             )
         )
@@ -293,6 +304,8 @@ def print_holdout_ranking_diagnostics(
     click_n = clicks.count()
     avg_clicked_baseline = None
     avg_clicked_reranked = None
+    avg_of_min_clicked_baseline = None
+    avg_of_min_clicked_reranked = None
     if click_n == 0:
         print("No clicked rows (label=1) on holdout; skipping avg clicked slot metrics.")
     else:
@@ -309,6 +322,24 @@ def print_holdout_ranking_diagnostics(
         print(
             f"Avg slot among clicks — reranked (by click_proba desc): "
             f"{avg_clicked_reranked:.4f}"
+        )
+        min_per_search = clicks.groupBy(*SEARCH_KEYS).agg(
+            F.min("game_position").alias("min_clicked_game_position"),
+            F.min("reranked_game_position").alias("min_clicked_reranked_game_position"),
+        )
+        min_row = min_per_search.agg(
+            F.avg("min_clicked_game_position").alias("avg_of_min_baseline"),
+            F.avg("min_clicked_reranked_game_position").alias("avg_of_min_reranked"),
+        ).first()
+        avg_of_min_clicked_baseline = float(min_row["avg_of_min_baseline"])
+        avg_of_min_clicked_reranked = float(min_row["avg_of_min_reranked"])
+        print(
+            f"Avg of min clicked slot per search — baseline (min game_position): "
+            f"{avg_of_min_clicked_baseline:.4f}"
+        )
+        print(
+            f"Avg of min clicked slot per search — reranked (min reranked rank): "
+            f"{avg_of_min_clicked_reranked:.4f}"
         )
 
     bucket_lo = (F.floor(F.col("click_proba") / F.lit(0.05)) * F.lit(0.05)).alias("bucket_lo")
@@ -369,6 +400,8 @@ def print_holdout_ranking_diagnostics(
         summary,
         avg_clicked_baseline=avg_clicked_baseline,
         avg_clicked_reranked=avg_clicked_reranked,
+        avg_of_min_clicked_baseline=avg_of_min_clicked_baseline,
+        avg_of_min_clicked_reranked=avg_of_min_clicked_reranked,
         context=context,
     )
     save_holdout_ranking_metrics(metric_rows)
