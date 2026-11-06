@@ -8,7 +8,7 @@ gameplay_contest_timezone = "America/Los_Angeles"
 training_data_end_date = (
     f"DATE(from_utc_timestamp(current_timestamp(), '{gameplay_contest_timezone}'))"
 )
-training_lookback_window = 61
+training_lookback_window = 91
 holdout_period = 7  # last N days of training full_df → holdout slice
 validation_days = 7  # N days immediately before holdout → validation slice; train is the remainder
 
