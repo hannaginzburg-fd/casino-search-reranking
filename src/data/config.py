@@ -95,6 +95,7 @@ _EXCLUDE_BASE = [
     "inserted_ts",
     sample_weight_col,
     # Recency / popularity features excluded from model (still in full_df for EDA)
+    "R1_num_bets_user_game",
     "R14_bet_amount_user_game",
     "R1_bet_amount_user",
     "R1_bet_amount_user_game",
