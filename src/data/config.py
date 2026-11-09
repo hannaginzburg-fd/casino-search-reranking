@@ -91,7 +91,7 @@ _EXCLUDE_BASE = [
     "event_date",
     "search_keyword",
     "final_similarity_score",
-    "game_super_class" # so it's not redundant with game_class
+    "game_super_class", # so it's not redundant with game_class
     "inserted_ts",
     sample_weight_col,
     # Recency / popularity features excluded from model (still in full_df for EDA)
