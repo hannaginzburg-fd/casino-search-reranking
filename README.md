@@ -32,7 +32,7 @@ notebooks/evaluation.ipynb
 
 | Stage | Behavior |
 |-------|----------|
-| **Training full_df** | `event_date` in **`[end − training_lookback_window, end)`** with **`training_data_end_date`** (default `current_date()`, so **today excluded**); rows need `final_similarity_score IS NOT NULL` |
+| **Training full_df** | `event_date` in **`[end − training_lookback_window, end]`** with **`data_end_date`** (inclusive last Pacific calendar day); rows need `final_similarity_score IS NOT NULL` |
 | **Holdout / validation** | From that table: **last 7 days** = holdout; **prior 7 days** = validation; earlier = train (`holdout_period`, `validation_days`) |
 | **Training** | `event_date` before validation window; optional **`share_df_summaries`** EDA → `artifacts/training_summaries/<split>/` (`share_df_summaries_splits`: train, validation, holdout) |
 | **Validation** | **`validation_days`** immediately before holdout — **`cas_search_reranking_validation_df`** |

@@ -16,7 +16,7 @@ from data.constants import (
     full_df_for_training_table,
     full_df_table,
     holdout_period,
-    training_data_end_date,
+    data_end_date,
     inference_eval_metrics_table,
     inferences_table,
     schema,
@@ -138,7 +138,7 @@ def run_sql_script(sql_path: str | Path) -> None:
     from data.constants import gameplay_contest_timezone
 
     body = Path(sql_path).read_text(encoding="utf-8").format(
-        training_data_end_date=training_data_end_date,
+        data_end_date=data_end_date,
         training_lookback_window=training_lookback_window,
         contest_history_lookback_days=contest_history_lookback_days,
         gameplay_contest_timezone=gameplay_contest_timezone,

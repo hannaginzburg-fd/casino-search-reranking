@@ -42,9 +42,9 @@ LATERAL VIEW explode(
   )
 ) t AS exploded_col
 WHERE DATE(from_utc_timestamp(a.collector_tstamp, '{gameplay_contest_timezone}')) >= dateadd(
-    DAY, -{training_lookback_window}, {training_data_end_date}
+    DAY, -{training_lookback_window}, {data_end_date}
   )
-  AND DATE(from_utc_timestamp(a.collector_tstamp, '{gameplay_contest_timezone}')) < {training_data_end_date}
+  AND DATE(from_utc_timestamp(a.collector_tstamp, '{gameplay_contest_timezone}')) <= {data_end_date}
   AND event_category = 'search'
   AND event_name = 'search_results_returned'
   AND a.fanduel_user_id IS NOT NULL
@@ -105,9 +105,9 @@ LATERAL VIEW explode(
   )
 ) t AS exploded_col
 WHERE DATE(from_utc_timestamp(a.collector_tstamp, '{gameplay_contest_timezone}')) >= dateadd(
-    DAY, -{training_lookback_window}, {training_data_end_date}
+    DAY, -{training_lookback_window}, {data_end_date}
   )
-  AND DATE(from_utc_timestamp(a.collector_tstamp, '{gameplay_contest_timezone}')) < {training_data_end_date}
+  AND DATE(from_utc_timestamp(a.collector_tstamp, '{gameplay_contest_timezone}')) <= {data_end_date}
   AND event_category = 'search'
   AND event_name = 'search_results_scrolled'
   AND a.fanduel_user_id IS NOT NULL
@@ -168,9 +168,9 @@ LATERAL VIEW explode(
   )
 ) t AS exploded_col
 WHERE DATE(from_utc_timestamp(a.collector_tstamp, '{gameplay_contest_timezone}')) >= dateadd(
-    DAY, -{training_lookback_window}, {training_data_end_date}
+    DAY, -{training_lookback_window}, {data_end_date}
   )
-  AND DATE(from_utc_timestamp(a.collector_tstamp, '{gameplay_contest_timezone}')) < {training_data_end_date}
+  AND DATE(from_utc_timestamp(a.collector_tstamp, '{gameplay_contest_timezone}')) <= {data_end_date}
   AND event_category = 'search'
   AND event_name = 'search_results_selected'
   AND a.fanduel_user_id IS NOT NULL
@@ -259,8 +259,8 @@ WITH daily_stats AS (
     sum(gross_gaming_revenue) AS daily_ggr,
     sum(net_gaming_revenue) AS daily_ngr
   FROM core_views.casino.gameplay_contests
-  WHERE contest_date >= dateadd(DAY, -{contest_history_lookback_days}, {training_data_end_date})
-    AND contest_date < {training_data_end_date}
+  WHERE contest_date >= dateadd(DAY, -{contest_history_lookback_days}, {data_end_date})
+    AND contest_date <= {data_end_date}
     AND NOT is_test_account
     AND number_of_bets > 0
   GROUP BY 1, 2, 3
@@ -318,7 +318,7 @@ WITH t1 AS (
 SELECT
   a.game_uid,
   a.state_code AS state,
-  greatest(datediff(day, a.release_date, {training_data_end_date}), 0) AS recency,
+  greatest(datediff(day, a.release_date, {data_end_date}), 0) AS recency,
   a.game_studio_id,
   a.game_class,
   a.game_super_class,
@@ -351,8 +351,8 @@ WITH daily AS (
     sum(bet_amount) AS bet_amount,
     sum(number_of_bets) AS number_of_bets
   FROM core_views.casino.gameplay_contests
-  WHERE contest_date >= dateadd(DAY, -{contest_history_lookback_days}, {training_data_end_date})
-    AND contest_date < {training_data_end_date}
+  WHERE contest_date >= dateadd(DAY, -{contest_history_lookback_days}, {data_end_date})
+    AND contest_date <= {data_end_date}
     AND NOT is_test_account
     AND number_of_bets > 0
   GROUP BY fanduel_user_id, game_id, contest_location_code, contest_date
@@ -465,8 +465,8 @@ daily AS (
     sum(bet_amount) AS total_bet_amount,
     sum(number_of_bets) AS total_number_of_bets
   FROM core_views.casino.gameplay_contests
-  WHERE contest_date >= dateadd(DAY, -{contest_history_lookback_days}, {training_data_end_date})
-    AND contest_date < {training_data_end_date}
+  WHERE contest_date >= dateadd(DAY, -{contest_history_lookback_days}, {data_end_date})
+    AND contest_date <= {data_end_date}
     AND NOT is_test_account
     AND number_of_bets > 0
   GROUP BY fanduel_user_id, contest_location_code, contest_date
@@ -644,8 +644,8 @@ LEFT JOIN clicked_games click
   AND a.game_id = click.game_id
   AND a.search_keyword = click.search_keyword
   AND a.game_position = click.game_position
-WHERE a.event_date >= dateadd(DAY, -{training_lookback_window}, {training_data_end_date})
-  AND a.event_date < {training_data_end_date}
+WHERE a.event_date >= dateadd(DAY, -{training_lookback_window}, {data_end_date})
+  AND a.event_date <= {data_end_date}
 GROUP BY
   a.fanduel_user_id,
   a.session_id,

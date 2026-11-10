@@ -1,14 +1,12 @@
 """Shared data pipeline constants."""
 
-# Training full_df: event_date in [dateadd(-training_lookback_window, end), end) — end is exclusive.
+# Training full_df: event_date in [dateadd(-training_lookback_window, end), end] — end is inclusive (data_end_date).
 # gameplay_contests.contest_date is a US Pacific calendar day. Snowplow collector_tstamp is UTC.
 # SQL derives event_date by converting UTC → Pacific so search rows join contest features on the same day.
 gameplay_contest_timezone = "America/Los_Angeles"
-# Exclusive upper bound on that Pacific calendar (today when the job runs). Backfill: DATE 'YYYY-MM-DD'.
-training_data_end_date = (
-    f"DATE(from_utc_timestamp(current_timestamp(), '{gameplay_contest_timezone}'))"
-)
-training_lookback_window = 91
+# Last included Pacific calendar day for event_date / contest_date filters. Backfill: DATE 'YYYY-MM-DD'.
+data_end_date = "DATE '2026-10-28'"
+training_lookback_window = 61
 holdout_period = 7  # last N days of training full_df → holdout slice
 validation_days = 7  # N days immediately before holdout → validation slice; train is the remainder
 
