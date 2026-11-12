@@ -89,7 +89,6 @@ _EXCLUDE_BASE = [
     "session_id",
     "game_id",
     "event_date",
-    "state",
     "search_keyword",
     "final_similarity_score",
     "game_super_class", # so it's not redundant with game_class
