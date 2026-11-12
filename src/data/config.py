@@ -58,7 +58,7 @@ XGB_VALIDATION_INDICATOR_COL = "_is_validation"
 from data.constants import *  # noqa: F403
 
 # Jurisdictions in training/inference SQL (`upper(state) IN (...)`). List every state you want kept.
-included_states = ["MI", "WV", "PA", "NJ", "CT"]
+included_states = ["MI", "WV", "PA"]
 
 LABEL_COLUMN = "label"
 
