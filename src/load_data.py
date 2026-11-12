@@ -6,7 +6,12 @@ from pathlib import Path
 import pandas as pd
 from pyspark.sql import DataFrame, functions as F
 
-from data.config import INVERSE_PROPENSITY_WEIGHTING, IPW_POSITION_COLUMN, LABEL_COLUMN
+from data.config import (
+    INVERSE_PROPENSITY_WEIGHTING,
+    IPW_POSITION_COLUMN,
+    LABEL_COLUMN,
+    included_states,
+)
 from data.constants import sample_weight_col
 from features import training_feature_columns
 from ipw import add_inverse_propensity_weights
@@ -133,15 +138,28 @@ def _strip_sql_line_comments(sql: str) -> str:
     return "\n".join(_strip_line_comment(line) for line in sql.splitlines())
 
 
+_SNOWPLOW_JURISDICTION_COL = (
+    "payload.event_entities.contexts_com_fanduel_casino_global_properties_1[0].jurisdiction"
+)
+
+
 def run_sql_script(sql_path: str | Path) -> None:
     spark = get_spark()
     from data.constants import gameplay_contest_timezone
+
+    states_in = ", ".join(f"'{s.upper()}'" for s in included_states)
+    included_states_snowplow_filter = (
+        f"\n  AND upper({_SNOWPLOW_JURISDICTION_COL}) IN ({states_in})"
+    )
+    included_states_base_features_filter = f"\n  AND upper(a.state) IN ({states_in})"
 
     body = Path(sql_path).read_text(encoding="utf-8").format(
         data_end_date=data_end_date,
         training_lookback_window=training_lookback_window,
         contest_history_lookback_days=contest_history_lookback_days,
         gameplay_contest_timezone=gameplay_contest_timezone,
+        included_states_snowplow_filter=included_states_snowplow_filter,
+        included_states_base_features_filter=included_states_base_features_filter,
     )
     # Semicolons inside `-- ...` comments must not terminate statements (naive split breaks).
     body = _strip_sql_line_comments(body)

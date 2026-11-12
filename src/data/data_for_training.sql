@@ -51,6 +51,7 @@ WHERE DATE(from_utc_timestamp(a.collector_tstamp, '{gameplay_contest_timezone}')
   AND payload.sp_analytics_entities.contexts_com_snowplowanalytics_snowplow_client_session_1.session_id[0] IS NOT NULL
   AND b.is_customer_account
   AND NOT b.is_test_account
+  {included_states_snowplow_filter}
 GROUP BY
   app_id,
   a.fanduel_user_id,
@@ -114,6 +115,7 @@ WHERE DATE(from_utc_timestamp(a.collector_tstamp, '{gameplay_contest_timezone}')
   AND payload.sp_analytics_entities.contexts_com_snowplowanalytics_snowplow_client_session_1.session_id[0] IS NOT NULL
   AND b.is_customer_account
   AND NOT b.is_test_account
+  {included_states_snowplow_filter}
 GROUP BY
   app_id,
   a.fanduel_user_id,
@@ -177,6 +179,7 @@ WHERE DATE(from_utc_timestamp(a.collector_tstamp, '{gameplay_contest_timezone}')
   AND payload.sp_analytics_entities.contexts_com_snowplowanalytics_snowplow_client_session_1.session_id[0] IS NOT NULL
   AND b.is_customer_account
   AND NOT b.is_test_account
+  {included_states_snowplow_filter}
 GROUP BY
   app_id,
   a.fanduel_user_id,
@@ -647,6 +650,7 @@ LEFT JOIN clicked_games click
   AND a.game_position = click.game_position
 WHERE a.event_date >= dateadd(DAY, -{training_lookback_window}, {data_end_date})
   AND a.event_date <= {data_end_date}
+  {included_states_base_features_filter}
 GROUP BY
   a.fanduel_user_id,
   a.session_id,
