@@ -26,6 +26,7 @@ R30_RANK_COLS = [
 ]
 
 DIMENSION_BAR_CUTS = [
+    ("state", "state", None),
     ("app_id", "platform_app_id", None),
     ("game_super_class", "game_super_class", None),
     ("day_of_week", "day_of_week", None),
@@ -39,6 +40,7 @@ DIMENSION_BAR_CUTS = [
 SIMILARITY_SCORE_EDA_COLS = ("base_similarity_score", "final_similarity_score")
 
 CATEGORICAL_OVERRIDES = {
+    "state",
     "app_id",
     "game_super_class",
     "game_class",
@@ -351,13 +353,21 @@ def run_dataset_summaries(sdf: DataFrame, *, output_dir: Path, split_label: str)
             continue
         dim = _bucket_expr(source_col, bucket_kind).alias("dimension")
         cut = _agg_users_ctr(sdf.withColumn("dimension", dim), "dimension")
-        for metric, fmt in ((UNIQUE_USERS, lambda v: f"{int(v):,}"), (CTR_LABEL, _pct_fmt)):
+        metrics: list[tuple[str, object]] = [
+            (UNIQUE_USERS, lambda v: f"{int(v):,}"),
+            (CTR_LABEL, _pct_fmt),
+        ]
+        if source_col == "state":
+            metrics.append(("row_count", lambda v: f"{int(v):,}"))
+        for metric, fmt in metrics:
             fname = output_dir / f"bar_{slug}_{metric}.png"
             title = f"{metric} by {slug} ({split_label})"
             if bucket_kind == "recency":
                 title = f"{metric} by {slug} (in # of days, {split_label})"
             _bar_chart(cut, "dimension", metric, title, fname, y_fmt=fmt)
             saved.append(fname)
+        if source_col == "state" and not cut.empty:
+            cut.to_csv(output_dir / f"state_n_and_ctr_{split_label}.csv", index=False)
 
     feature_cols = _model_feature_cols(sdf)
     numeric_cols, categorical_cols = _numeric_and_categorical(sdf, feature_cols)
